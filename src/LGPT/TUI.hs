@@ -32,7 +32,9 @@ runREPL = forever $ do
 
 
 -- | Our request type, the result of parsing a string.
-data Request = Unknown
+data Request
+  = Unknown
+  | Hello 
   deriving (Eq, Ord, Show)
 
 
@@ -49,10 +51,18 @@ readRequest str = case parse parseRequest "<stdin>" str of
 
 -- | Currently, the only thing λGPT understands is "Hello"...
 parseRequest :: Parser Request
-parseRequest = fail "No requests implemented yet!"
+parseRequest = parseHello
+
+
+parseHello :: Parser Request
+parseHello = do
+  string "Hello."
+  eof
+  return Hello
 
 
 -- | Respond to a request. This is where the behaviours of λGPT will go, but 
 -- for now it just responds to "Hello".
 respondTo :: Request -> IO ()
 respondTo Unknown = putStrLn "I don't understand that."
+respondTo Hello = putStrLn "Hi there!"
