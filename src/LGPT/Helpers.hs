@@ -1,3 +1,4 @@
+{- HLINT ignore "Use <$>" -}
 module LGPT.Helpers where
 
 import Text.Megaparsec
@@ -5,6 +6,9 @@ import Data.Void (Void)
 import System.Console.ANSI
 import System.IO
 import Control.Monad (when)
+import Data.Time (Day, dayOfWeek, LocalTime (localDay), ZonedTime (zonedTimeToLocalTime), getZonedTime, fromGregorian, parseTimeM, defaultTimeLocale)
+import Text.Megaparsec.Char
+import Text.Megaparsec.Char.Lexer
 
 -- | Our Parser monad is a specialisation of the complex "Parsec" type 
 -- so that it works on strings. 
@@ -15,6 +19,9 @@ type Parser = Parsec Void String
 -- Feel free to change this to something else.
 prompt :: String
 prompt = "λ> "
+
+digits :: String
+digits = ['0'..'9']
 
 -- | Set up the interactive terminal session.
 runStart :: IO ()
@@ -49,3 +56,18 @@ runStart = do
     setSGR [Reset]
 
     -- And now we are ready!
+
+-- Parses a day in the form '%Y-%M-%D'
+parseDay :: Parser Day
+parseDay = do
+  year <- decimal
+  char '-'
+  month <- decimal
+  char '-'
+  day <- decimal
+  -- TODO: Use fromGregorianValid to prevent invalid dates from being accepted
+  return $ fromGregorian year month day
+
+-- Returns the day today according to local time
+dayToday :: IO Day
+dayToday = localDay . zonedTimeToLocalTime <$> getZonedTime

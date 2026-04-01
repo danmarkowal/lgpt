@@ -10,8 +10,9 @@ keep it if you don't want to.
 import Control.Monad
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import LGPT.Helpers (Parser, prompt, runStart)   
+import LGPT.Helpers (Parser, prompt, runStart, parseDay, dayToday)
 import LGPT.Numbers (parseLonghand, printLonghand)
+import Data.Time (dayOfWeek, Day, addDays, diffDays)
 
 
 --------------------------------------------------------------------------------
@@ -34,7 +35,10 @@ runREPL = forever $ do
 -- | Our request type, the result of parsing a string.
 data Request
   = Unknown
-  | Hello 
+  | Hello
+  | DayToday
+  | DayTomorrow
+  | DaysSince Day
   deriving (Eq, Ord, Show)
 
 
@@ -47,11 +51,11 @@ readRequest :: String -> Request
 readRequest str = case parse parseRequest "<stdin>" str of
   Left  err -> Unknown
   Right req -> req
-  
 
--- | Currently, the only thing λGPT understands is "Hello"...
+
 parseRequest :: Parser Request
-parseRequest = parseHello
+parseRequest
+  = choice [parseHello, parseDayToday, parseDayTomorrow, parseDaysSince]
 
 
 parseHello :: Parser Request
@@ -61,8 +65,44 @@ parseHello = do
   return Hello
 
 
+parseDayToday :: Parser Request
+parseDayToday = do
+  string "What day is it?" <|> string "What day is it today?"
+  eof
+  return DayToday
+
+
+parseDayTomorrow :: Parser Request
+parseDayTomorrow = do
+  string "What day is it tomorrow?"
+  eof
+  return DayTomorrow
+
+
+parseDaysSince :: Parser Request
+parseDaysSince = do
+  string "How long ago was"
+  space
+  day <- parseDay
+  char '?'
+  eof
+  return (DaysSince day)
+
+
 -- | Respond to a request. This is where the behaviours of λGPT will go, but 
 -- for now it just responds to "Hello".
 respondTo :: Request -> IO ()
 respondTo Unknown = putStrLn "I don't understand that."
 respondTo Hello = putStrLn "Hi there!"
+respondTo DayToday = do
+  dotw <- dayOfWeek <$> dayToday
+  putStrLn $ "Today is " ++ show dotw ++ "."
+respondTo DayTomorrow = do
+  today <- dayToday
+  let dotw = dayOfWeek $ addDays 1 today
+  putStrLn $ "Tomorrow is " ++ show dotw ++ "."
+respondTo (DaysSince start) = do
+  today <- dayToday
+  -- TODO: Prevent this from returning negatives
+  let delta = diffDays today start
+  putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
