@@ -68,7 +68,7 @@ parseRequest
 
 parseHello :: Parser Request
 parseHello = do
-  string "Hello."
+  string "Hello"
   eof
   return Hello
 
