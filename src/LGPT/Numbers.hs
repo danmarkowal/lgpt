@@ -1,7 +1,9 @@
+{- HLINT ignore "Use <$>" -}
 module LGPT.Numbers where
 
 import LGPT.Helpers
 import Control.Applicative
+import Control.Monad.Combinators.Expr
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -18,7 +20,7 @@ printLonghand n
   | n == 1000000  = "one million"
   | n == 0        = "zero"
   | n >= 1000     = let
-      thouStr   = printLonghand (n `div` 1000) ++ " thousand" 
+      thouStr   = printLonghand (n `div` 1000) ++ " thousand"
       and       = if n `mod` 1000 >= 100 then " " else " and "
       hundStr   = printLonghand (n `mod` 1000)
       in if n `mod` 1000 == 0
@@ -30,8 +32,8 @@ printLonghand n
       in if n `mod` 100 == 0
          then hundStr
          else hundStr ++ " and " ++ tensStr
-  | n >= 20 = let 
-      tensStr = tens !! ((n `div` 10) - 2) 
+  | n >= 20 = let
+      tensStr = tens !! ((n `div` 10) - 2)
       hyphen  = if n `mod` 10 /= 0 then "-" else ""
       unitStr = ("" : oneToNine) !! (n `mod` 10)
       in tensStr ++ hyphen ++ unitStr
@@ -46,7 +48,7 @@ printLonghand n
     This parser is a lot more complicated than the ones you need to write.
 -}
 parseLonghand :: Parser Int
-parseLonghand = choice 
+parseLonghand = choice
   [ string "one million" >> pure 1000000
   , try parseSubMillion
   , try parseSubThousand
@@ -87,8 +89,8 @@ parseLonghand = choice
     parseTenToTwenty = choice $ zipWith (\v s -> string s >> pure v) [10..19] tenToTwenty
 
     parseUnit :: Parser Int
-    parseUnit = choice $ zipWith (\v s -> string s >> pure v) 
-      [1..9] 
+    parseUnit = choice $ zipWith (\v s -> string s >> pure v)
+      [1..9]
       oneToNine
 
 
@@ -96,15 +98,43 @@ parseLonghand = choice
 -- Helpers used for both parsing and printing
 
 oneToNine :: [String]
-oneToNine = 
+oneToNine =
   [ "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
 
 tenToTwenty :: [String]
-tenToTwenty = 
+tenToTwenty =
   [ "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"
   , "sixteen", "seventeen", "eighteen", "nineteen"]
 
 tens :: [String]
-tens = 
+tens =
   [ "twenty", "thirty", "forty", "fifty"
   , "sixty", "seventy", "eighty", "ninety"]
+
+data Expr
+  = Plus Expr Expr
+  | Minus Expr Expr
+  | Times Expr Expr
+  | Val Int
+  deriving (Eq, Ord, Show)
+
+parseVal :: Parser Expr
+parseVal = Val <$> lexeme parseLonghand
+
+parseExpr :: Parser Expr
+parseExpr = makeExprParser parseVal opTable
+
+-- Only one precedence level since all operators have the same precedence
+opTable :: [[Operator Parser Expr]]
+opTable =
+  [ [ InfixL (Plus  <$ symbol "plus")
+    , InfixL (Minus <$ symbol "minus")
+    , InfixL (Times <$ symbol "times")
+    ]
+  ]
+
+evalExpr :: Expr -> Int
+evalExpr (Plus a b) = evalExpr a + evalExpr b
+evalExpr (Minus a b) = evalExpr a - evalExpr b
+evalExpr (Times a b) = evalExpr a * evalExpr b
+evalExpr (Val a) = a

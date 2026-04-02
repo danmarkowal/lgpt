@@ -7,8 +7,9 @@ import System.Console.ANSI
 import System.IO
 import Control.Monad (when)
 import Data.Time (Day, dayOfWeek, LocalTime (localDay), ZonedTime (zonedTimeToLocalTime), getZonedTime, fromGregorian, parseTimeM, defaultTimeLocale)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer
+import Text.Megaparsec.Char ( char, space, string )
+import Text.Megaparsec.Char.Lexer ( decimal )
+import Control.Applicative (Alternative)
 
 -- | Our Parser monad is a specialisation of the complex "Parsec" type 
 -- so that it works on strings. 
@@ -71,3 +72,11 @@ parseDay = do
 -- Returns the day today according to local time
 dayToday :: IO Day
 dayToday = localDay . zonedTimeToLocalTime <$> getZonedTime
+
+-- Eat exactly one space between parsers
+lexeme :: Parser a -> Parser a
+lexeme p = p <* space
+
+-- Lexeme with a string parser
+symbol :: String -> Parser String
+symbol s = lexeme (string s)

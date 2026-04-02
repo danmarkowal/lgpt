@@ -1,3 +1,4 @@
+{- HLINT ignore "Use <$>" -}
 module LGPT.TUI where
 
 {-
@@ -11,7 +12,7 @@ import Control.Monad
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import LGPT.Helpers (Parser, prompt, runStart, parseDay, dayToday)
-import LGPT.Numbers (parseLonghand, printLonghand)
+import LGPT.Numbers (parseLonghand, printLonghand, Expr, parseExpr, evalExpr)
 import Data.Time (dayOfWeek, Day, addDays, diffDays)
 
 
@@ -39,6 +40,7 @@ data Request
   | DayToday
   | DayTomorrow
   | DaysSince Day
+  | WhatIs Expr
   deriving (Eq, Ord, Show)
 
 
@@ -55,7 +57,13 @@ readRequest str = case parse parseRequest "<stdin>" str of
 
 parseRequest :: Parser Request
 parseRequest
-  = choice [parseHello, parseDayToday, parseDayTomorrow, parseDaysSince]
+  = choice
+  [ parseHello
+  , parseDayToday
+  , parseDayTomorrow
+  , parseDaysSince
+  , parseWhatIs
+  ]
 
 
 parseHello :: Parser Request
@@ -89,6 +97,16 @@ parseDaysSince = do
   return (DaysSince day)
 
 
+parseWhatIs :: Parser Request
+parseWhatIs = do
+  string "What is"
+  space
+  expr <- parseExpr
+  char '?'
+  eof
+  return $ WhatIs expr
+
+
 -- | Respond to a request. This is where the behaviours of λGPT will go, but 
 -- for now it just responds to "Hello".
 respondTo :: Request -> IO ()
@@ -106,3 +124,6 @@ respondTo (DaysSince start) = do
   -- TODO: Prevent this from returning negatives
   let delta = diffDays today start
   putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
+respondTo (WhatIs expr) = do
+  let res = evalExpr expr
+  putStrLn $ "The answer is " ++ printLonghand res ++ "."

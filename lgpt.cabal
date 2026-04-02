@@ -32,6 +32,7 @@ library
     , containers
     , megaparsec
     , mtl
+    , parser-combinators
     , time
   default-language: GHC2021
 
@@ -52,6 +53,7 @@ executable lgpt-tui
     , lgpt
     , megaparsec
     , mtl
+    , parser-combinators
     , time
   default-language: GHC2021
 
@@ -74,6 +76,7 @@ test-suite lgpt-test
     , lgpt
     , megaparsec
     , mtl
+    , parser-combinators
     , regex-tdfa
     , split
     , tasty
