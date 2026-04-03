@@ -11,7 +11,7 @@ keep it if you don't want to.
 import Control.Monad
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Helpers (LGPTState (that), Parser, dayToday, memorise, parseDay, parseIdentifier, prompt, recall, runStart, storeThat)
+import LGPT.Helpers (LGPTState (that), Parser, dayToday, emptyState, memorise, parseDay, parseIdentifier, prompt, recall, runStart, storeThat)
 import LGPT.Numbers (EvalState (EvalState, ethat), Expr, evalExpr, fromLGPTState, parseExpr, parseLonghand, printLonghand)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -22,11 +22,15 @@ import Text.Megaparsec.Char
 --      1. Reads a line of input
 --      2. Parses it into a structured Request
 --      3. Does something based on that request (normally printing something out).
-runREPL :: StateT LGPTState IO ()
-runREPL = forever $ do
-  liftIO $ putStr prompt
-  req <- liftIO getLine
-  respondTo (readRequest req)
+runREPL :: IO ()
+runREPL =
+  evalStateT
+    ( forever $ do
+        liftIO $ putStr prompt
+        req <- liftIO getLine
+        respondTo (readRequest req)
+    )
+    emptyState
 
 --------------------------------------------------------------------------------
 -- Parsing and responding to requests:

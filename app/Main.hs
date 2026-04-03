@@ -1,6 +1,5 @@
 module Main where
 
-import Control.Monad.State (StateT (runStateT))
 import LGPT.Helpers
 import LGPT.TUI qualified as TUI
 
@@ -14,5 +13,5 @@ main = do
   runStart
 
   -- Actually run the loop!
-  runStateT TUI.runREPL emptyState
+  TUI.runREPL
   return ()
