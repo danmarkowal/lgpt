@@ -1,11 +1,12 @@
 {- HLINT ignore "Use <$>" -}
+{- HLINT ignore "Use newtype instead of data" -}
 module LGPT.Numbers where
 
 import Control.Applicative
-import Control.Monad (liftM2)
+import Control.Monad
 import Control.Monad.Combinators.Expr
-import Control.Monad.State (MonadTrans (lift), StateT, gets)
-import LGPT.Helpers
+import Control.Monad.State
+import LGPT.Helpers (LGPTState (LGPTState, that), Parser, lexeme, symbol)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -163,17 +164,28 @@ opTable =
     ]
   ]
 
-evalBin :: (Int -> Int -> Int) -> Expr -> Expr -> StateT LGPTState (Either String) Int
-evalBin f a b = f <$> evalExpr a <*> evalExpr b
+-- This is its own separate data type as I might add more features to the evaluator later
+data EvalState
+  = EvalState {ethat :: Maybe Int}
+
+fromLGPTState :: LGPTState -> EvalState
+fromLGPTState LGPTState {that} =
+  EvalState
+    { ethat = that
+    }
+
+-- For general binary operations between integers
+evalBinOp :: (Int -> Int -> Int) -> Expr -> Expr -> StateT EvalState (Either String) Int
+evalBinOp f a b = f <$> evalExpr a <*> evalExpr b
 
 -- Evaluation is a stateful computation
-evalExpr :: Expr -> StateT LGPTState (Either String) Int
-evalExpr (Plus a b) = evalBin (+) a b
-evalExpr (Minus a b) = evalBin (-) a b
-evalExpr (Times a b) = evalBin (*) a b
+evalExpr :: Expr -> StateT EvalState (Either String) Int
+evalExpr (Plus a b) = evalBinOp (+) a b
+evalExpr (Minus a b) = evalBinOp (-) a b
+evalExpr (Times a b) = evalBinOp (*) a b
 evalExpr (Val a) = return a
 evalExpr That = do
-  mthat <- gets that
+  mthat <- gets ethat
   case mthat of
     Nothing -> lift $ Left "I haven't evaluated anything yet."
     Just that -> return that

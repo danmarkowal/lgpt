@@ -11,8 +11,8 @@ keep it if you don't want to.
 import Control.Monad
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Helpers (LGPTState, Parser, dayToday, memorise, parseDay, parseIdentifier, prompt, recall, runStart, storeThat)
-import LGPT.Numbers (Expr, evalExpr, parseExpr, parseLonghand, printLonghand)
+import LGPT.Helpers (LGPTState (that), Parser, dayToday, memorise, parseDay, parseIdentifier, prompt, recall, runStart, storeThat)
+import LGPT.Numbers (EvalState (EvalState, ethat), Expr, evalExpr, fromLGPTState, parseExpr, parseLonghand, printLonghand)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -140,8 +140,9 @@ respondTo (DaysSince start) = liftIO $ do
   let delta = diffDays today start
   putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
 respondTo (WhatIs expr) = do
-  st <- get
-  case evalStateT (evalExpr expr) st of
+  lgptSt <- get
+  let evalSt = fromLGPTState lgptSt
+  case evalStateT (evalExpr expr) evalSt of
     Left err -> liftIO $ putStrLn err
     Right res -> do
       liftIO $ putStrLn $ "The answer is " ++ printLonghand res ++ "."
