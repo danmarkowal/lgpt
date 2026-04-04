@@ -135,6 +135,10 @@ tens =
     "ninety"
   ]
 
+--------------------------------------------------------------------------------
+-- Helpers used to parse and evaluate number expressions
+
+-- Tree-like data structure for expressions
 data Expr
   = Plus Expr Expr
   | Minus Expr Expr
@@ -152,6 +156,10 @@ parseThat = That <$ symbol "that"
 parseTerm :: Parser Expr
 parseTerm = parseVal <|> parseThat
 
+-- I decided to use makeExprParser from the parser-combinators Hackage
+-- I could have used a simpler parser (since all operators are left-associative and have the same precedence)
+-- where we keep track of the 'current value' and parse the operator and next literal value and update the current value accordingly
+-- However, using an operator table is more flexible (we can change precedence, add more operators) and declarative
 parseExpr :: Parser Expr
 parseExpr = makeExprParser parseTerm opTable
 
@@ -167,7 +175,9 @@ opTable =
 -- This is its own separate data type as I might add more features to the evaluator later
 data EvalState
   = EvalState {ethat :: Maybe Int}
+  deriving (Show, Eq)
 
+-- Smart constructor which creates EvalState from LGPTState
 fromLGPTState :: LGPTState -> EvalState
 fromLGPTState LGPTState {that} =
   EvalState
@@ -178,7 +188,7 @@ fromLGPTState LGPTState {that} =
 evalBinOp :: (Int -> Int -> Int) -> Expr -> Expr -> StateT EvalState (Either String) Int
 evalBinOp f a b = f <$> evalExpr a <*> evalExpr b
 
--- Evaluation is a stateful computation
+-- Evaluation is a stateful computation which can fail with an error value
 evalExpr :: Expr -> StateT EvalState (Either String) Int
 evalExpr (Plus a b) = evalBinOp (+) a b
 evalExpr (Minus a b) = evalBinOp (-) a b

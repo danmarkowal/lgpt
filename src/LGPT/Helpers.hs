@@ -57,6 +57,9 @@ runStart = do
 
 -- And now we are ready!
 
+--------------------------------------------------------------------------------
+-- Helper functions for parsing:
+
 -- Parses a day in the form '%Y-%M-%D'
 parseDay :: Parser Day
 parseDay = do
@@ -86,11 +89,17 @@ parseIdentifier delimiter = unwords <$> manyTill word (lookAhead (string delimit
   where
     word = some letterChar <* space
 
+--------------------------------------------------------------------------------
+-- State and state management:
+
+-- I chose to use a data structure rather than a tuple since it automatically generates accessors
 data LGPTState = LGPTState
   { memory :: Map String String, -- Key-value map of memory (e.g. the sky: is blue)
     that :: Maybe Int -- Value of the last evaluated expression
   }
+  deriving (Show, Eq)
 
+-- Smart constructor used to construct an empty state value
 emptyState :: LGPTState
 emptyState =
   LGPTState
@@ -98,11 +107,14 @@ emptyState =
       that = Nothing
     }
 
+-- Makes the chatbot remember a 'thing' by associating it with 'name'
 memorise :: String -> String -> LGPTState -> LGPTState
 memorise name thing state@LGPTState {memory} = state {memory = Map.insert name thing memory}
 
+-- Recalls a piece of information with the key 'name'
 recall :: String -> LGPTState -> Maybe String
 recall name state@LGPTState {memory} = Map.lookup name memory
 
+-- Stores the result of the last evaluated expression
 storeThat :: Int -> LGPTState -> LGPTState
 storeThat value state@LGPTState {that} = state {that = Just value}

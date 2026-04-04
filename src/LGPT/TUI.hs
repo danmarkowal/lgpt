@@ -146,6 +146,7 @@ respondTo (DaysSince start) = liftIO $ do
 respondTo (WhatIs expr) = do
   lgptSt <- get
   let evalSt = fromLGPTState lgptSt
+  -- Have to run evalExpr separately since it returns a different kind of computation
   case evalStateT (evalExpr expr) evalSt of
     Left err -> liftIO $ putStrLn err
     Right res -> do
