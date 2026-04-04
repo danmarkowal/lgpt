@@ -11,7 +11,7 @@ keep it if you don't want to.
 import Control.Monad
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Helpers (LGPTState (that), Parser, dayToday, emptyState, memorise, parseDay, parseIdentifier, prompt, recall, runStart, storeThat)
+import LGPT.Helpers (LGPTState (LGPTState, active, that), Parser, dayToday, emptyState, memorise, parseDay, parseIdentifier, prompt, quit, recall, runStart, storeThat)
 import LGPT.Numbers (EvalState (EvalState, ethat), Expr, evalExpr, fromLGPTState, parseExpr, parseLonghand, printLonghand)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -23,14 +23,17 @@ import Text.Megaparsec.Char
 --      2. Parses it into a structured Request
 --      3. Does something based on that request (normally printing something out).
 runREPL :: IO ()
-runREPL =
-  evalStateT
-    ( forever $ do
-        liftIO $ putStr prompt
-        req <- liftIO getLine
-        respondTo (readRequest req)
-    )
-    emptyState
+runREPL = evalStateT loop emptyState
+  where
+    loop :: StateT LGPTState IO ()
+    loop = do
+      liftIO $ putStr prompt
+      req <- liftIO getLine
+      respondTo $ readRequest req
+      st <- get
+      when
+        (active st)
+        loop
 
 --------------------------------------------------------------------------------
 -- Parsing and responding to requests:
@@ -45,6 +48,7 @@ data Request
   | WhatIs Expr
   | Remember String String
   | TellMeAbout String
+  | Goodbye
   deriving (Eq, Ord, Show)
 
 -- | Read a request.
@@ -65,7 +69,8 @@ parseRequest =
       parseDaysSince,
       parseWhatIs,
       parseRemember,
-      parseTellMeAbout
+      parseTellMeAbout,
+      parseGoodbye
     ]
 
 parseHello :: Parser Request
@@ -114,6 +119,7 @@ parseRemember = do
   space
   thing <- parseIdentifier "."
   char '.'
+  eof
   return $ Remember name thing
 
 parseTellMeAbout :: Parser Request
@@ -123,6 +129,12 @@ parseTellMeAbout = do
   name <- parseIdentifier "."
   char '.'
   return $ TellMeAbout name
+
+parseGoodbye :: Parser Request
+parseGoodbye = do
+  string "Goodbye" <|> string "Bye"
+  eof
+  return Goodbye
 
 -- | Respond to a request. This is where the behaviours of λGPT will go, but
 -- for now it just responds to "Hello".
@@ -160,3 +172,6 @@ respondTo (TellMeAbout name) = do
   liftIO $ case mthing of
     Nothing -> putStrLn $ "Sorry, I don't know anything about " ++ name ++ "."
     Just thing -> putStrLn $ "Sure - " ++ name ++ " is " ++ thing ++ "."
+respondTo Goodbye = do
+  liftIO $ putStrLn "See you next time!"
+  modify quit

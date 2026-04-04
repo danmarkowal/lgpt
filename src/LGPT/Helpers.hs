@@ -95,7 +95,8 @@ parseIdentifier delimiter = unwords <$> manyTill word (lookAhead (string delimit
 -- I chose to use a data structure rather than a tuple since it automatically generates accessors
 data LGPTState = LGPTState
   { memory :: Map String String, -- Key-value map of memory (e.g. the sky: is blue)
-    that :: Maybe Int -- Value of the last evaluated expression
+    that :: Maybe Int, -- Value of the last evaluated expression
+    active :: Bool
   }
   deriving (Show, Eq)
 
@@ -104,7 +105,8 @@ emptyState :: LGPTState
 emptyState =
   LGPTState
     { memory = Map.empty,
-      that = Nothing
+      that = Nothing,
+      active = True
     }
 
 -- Makes the chatbot remember a 'thing' by associating it with 'name'
@@ -118,3 +120,7 @@ recall name state@LGPTState {memory} = Map.lookup name memory
 -- Stores the result of the last evaluated expression
 storeThat :: Int -> LGPTState -> LGPTState
 storeThat value state@LGPTState {that} = state {that = Just value}
+
+-- Sets bot's state to inactive to indicate that a user has quit
+quit :: LGPTState -> LGPTState
+quit state = state {active = False}
