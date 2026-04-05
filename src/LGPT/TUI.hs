@@ -11,9 +11,12 @@ keep it if you don't want to.
 import Control.Monad
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Helpers (LGPTState (LGPTState, active, that), Parser, dayToday, emptyState, memorise, parseDay, parseIdentifier, prompt, quit, recall, runStart, storeThat)
+import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, prompt, runStart)
 import LGPT.Numbers (EvalState (EvalState, ethat), Expr, evalExpr, fromLGPTState, parseExpr, parseLonghand, printLonghand)
+import LGPT.State (LGPTState (LGPTState, active, todos), addTodo, emptyState, loadTodos, markDone, memorise, quit, recall, saveTodos, storeThat)
+import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import Text.Megaparsec
+import Text.Megaparsec.Byte.Lexer (decimal)
 import Text.Megaparsec.Char
 
 --------------------------------------------------------------------------------
@@ -22,8 +25,10 @@ import Text.Megaparsec.Char
 --      1. Reads a line of input
 --      2. Parses it into a structured Request
 --      3. Does something based on that request (normally printing something out).
+-- We have to run the state inside of runREPL since the tests expect runREPL to be of type IO ()
+-- Before running the REPL we load the list of todo items
 runREPL :: IO ()
-runREPL = evalStateT loop emptyState
+runREPL = evalStateT (loadTodos >> loop) emptyState
   where
     loop :: StateT LGPTState IO ()
     loop = do
@@ -48,8 +53,13 @@ data Request
   | WhatIs Expr
   | Remember String String
   | TellMeAbout String
+  | AddTodo String TodoDay
+  | Todos TodoDay
+  | Done [Int]
   | Goodbye
   deriving (Eq, Ord, Show)
+
+type Block = [Request]
 
 -- | Read a request.
 --
@@ -70,6 +80,9 @@ parseRequest =
       parseWhatIs,
       parseRemember,
       parseTellMeAbout,
+      parseAddTodo,
+      parseTodos,
+      parseDone,
       parseGoodbye
     ]
 
@@ -130,6 +143,36 @@ parseTellMeAbout = do
   char '.'
   return $ TellMeAbout name
 
+parseAddTodo :: Parser Request
+parseAddTodo = do
+  string "I need to"
+  space
+  thing <- parseIdentifier "by"
+  string "by"
+  space
+  by <- parseTodoDay
+  string "."
+  eof
+  return $ AddTodo thing by
+
+parseTodos :: Parser Request
+parseTodos = do
+  string "What do I need to do by"
+  space
+  by <- parseTodoDay
+  string "?"
+  eof
+  return $ Todos by
+
+parseDone :: Parser Request
+parseDone = do
+  string "I've done"
+  space
+  ids <- parseIds
+  string "."
+  eof
+  return $ Done ids
+
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
@@ -172,6 +215,23 @@ respondTo (TellMeAbout name) = do
   liftIO $ case mthing of
     Nothing -> putStrLn $ "Sorry, I don't know anything about " ++ name ++ "."
     Just thing -> putStrLn $ "Sure - " ++ name ++ " is " ++ thing ++ "."
+respondTo (AddTodo thing by) = do
+  todo <- liftIO $ mkTodo thing by
+  modify $ addTodo todo
+  saveTodos
+  liftIO $ putStrLn "Noted."
+respondTo (Todos by) = do
+  st <- get
+  by <- liftIO $ fromTodoDay by
+  let todoList = filterBefore by $ fromTodos (todos st)
+  liftIO $
+    if null (items todoList)
+      then putStrLn "Nothing."
+      else print todoList
+respondTo (Done ids) = do
+  modify $ markDone ids
+  saveTodos
+  liftIO $ putStrLn "Noted."
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit

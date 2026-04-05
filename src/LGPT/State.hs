@@ -1,0 +1,73 @@
+-- Created a new module to remove cyclic dependency
+
+module LGPT.State where
+
+import Control.Monad (when)
+import Control.Monad.Except (ExceptT)
+import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT, modify)
+import Data.ByteString.Char8 qualified as BS
+import Data.ByteString.Lazy.Char8 qualified as BL
+import Data.Csv (HasHeader (NoHeader))
+import Data.Csv qualified as Csv
+import Data.Map (Map)
+import Data.Map qualified as Map
+import Data.Vector qualified as V
+import LGPT.Helpers (enumerate)
+import LGPT.Todo (Todo (Todo), TodoList (items), fromTodos, removeIds, toTodos, todosFile)
+import System.Directory (doesFileExist)
+
+-- I chose to use a data structure rather than a tuple since it automatically generates accessors
+data LGPTState = LGPTState
+  { memory :: Map String String, -- Key-value map of memory (e.g. the sky: is blue)
+    that :: Maybe Int, -- Value of the last evaluated expression
+    active :: Bool, -- False if the bot should quit
+    todos :: [Todo]
+  }
+  deriving (Show, Eq)
+
+-- Smart constructor used to construct an empty state value
+emptyState :: LGPTState
+emptyState =
+  LGPTState
+    { memory = Map.empty,
+      that = Nothing,
+      active = True,
+      todos = []
+    }
+
+-- Makes the chatbot remember a 'thing' by associating it with 'name'
+memorise :: String -> String -> LGPTState -> LGPTState
+memorise name thing st@LGPTState {memory} = st {memory = Map.insert name thing memory}
+
+-- Recalls a piece of information with the key 'name'
+recall :: String -> LGPTState -> Maybe String
+recall name LGPTState {memory} = Map.lookup name memory
+
+-- Stores the result of the last evaluated expression
+storeThat :: Int -> LGPTState -> LGPTState
+storeThat value st@LGPTState {that} = st {that = Just value}
+
+-- Sets bot's state to inactive to indicate that a user has quit
+quit :: LGPTState -> LGPTState
+quit st = st {active = False}
+
+addTodo :: Todo -> LGPTState -> LGPTState
+addTodo todo st@LGPTState {todos} = st {todos = todo : todos}
+
+markDone :: [Int] -> LGPTState -> LGPTState
+markDone ids st@LGPTState {todos} = st {todos = toTodos $ removeIds ids $ fromTodos todos}
+
+loadTodos :: StateT LGPTState IO ()
+loadTodos = do
+  exists <- liftIO $ doesFileExist todosFile
+  when exists $ do
+    encoded <- liftIO $ BL.readFile todosFile
+    case Csv.decode NoHeader encoded of
+      Left err -> liftIO $ putStrLn err
+      Right decoded -> modify $ \st -> st {todos = V.toList decoded}
+
+saveTodos :: StateT LGPTState IO ()
+saveTodos = do
+  st <- get
+  let encoded = Csv.encode $ todos st
+  liftIO $ BL.writeFile todosFile encoded

@@ -16,6 +16,8 @@ library
   exposed-modules:
       LGPT.Helpers
       LGPT.Numbers
+      LGPT.State
+      LGPT.Todo
       LGPT.TUI
   other-modules:
       Paths_lgpt
@@ -29,11 +31,15 @@ library
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
+    , cassava
     , containers
+    , directory
     , megaparsec
     , mtl
     , parser-combinators
     , time
+    , vector
   default-language: GHC2021
 
 executable lgpt-tui
@@ -49,12 +55,16 @@ executable lgpt-tui
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
+    , cassava
     , containers
+    , directory
     , lgpt
     , megaparsec
     , mtl
     , parser-combinators
     , time
+    , vector
   default-language: GHC2021
 
 test-suite lgpt-test
@@ -72,7 +82,9 @@ test-suite lgpt-test
     , ansi-terminal
     , base >=4.7 && <5
     , bytestring
+    , cassava
     , containers
+    , directory
     , lgpt
     , megaparsec
     , mtl
@@ -85,4 +97,5 @@ test-suite lgpt-test
     , temporary
     , text
     , time
+    , vector
   default-language: GHC2021

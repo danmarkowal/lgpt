@@ -6,7 +6,8 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Combinators.Expr
 import Control.Monad.State
-import LGPT.Helpers (LGPTState (LGPTState, that), Parser, lexeme, symbol)
+import LGPT.Helpers (Parser, lexeme, symbol)
+import LGPT.State (LGPTState (LGPTState, that))
 import Text.Megaparsec
 import Text.Megaparsec.Char
 

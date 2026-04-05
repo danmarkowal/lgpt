@@ -18,6 +18,10 @@ dependencies:
   - containers
   - mtl
   - time
+  - cassava
+  - bytestring
+  - vector
+  - directory
 
 default-extensions:
   - TypeSynonymInstances
