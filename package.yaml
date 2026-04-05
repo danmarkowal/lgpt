@@ -22,6 +22,7 @@ dependencies:
   - bytestring
   - vector
   - directory
+  - random
 
 default-extensions:
   - TypeSynonymInstances

@@ -14,6 +14,7 @@ build-type:     Simple
 
 library
   exposed-modules:
+      LGPT.Expr
       LGPT.Helpers
       LGPT.Numbers
       LGPT.State
@@ -38,6 +39,7 @@ library
     , megaparsec
     , mtl
     , parser-combinators
+    , random
     , time
     , vector
   default-language: GHC2021
@@ -63,6 +65,7 @@ executable lgpt-tui
     , megaparsec
     , mtl
     , parser-combinators
+    , random
     , time
     , vector
   default-language: GHC2021
@@ -89,6 +92,7 @@ test-suite lgpt-test
     , megaparsec
     , mtl
     , parser-combinators
+    , random
     , regex-tdfa
     , split
     , tasty

@@ -1,10 +1,10 @@
 -- Created a new module to remove cyclic dependency
-
+{- HLINT ignore "Use newtype instead of data" -}
 module LGPT.State where
 
 import Control.Monad (when)
-import Control.Monad.Except (ExceptT)
-import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT, modify)
+import Control.Monad.Except (Except, ExceptT, MonadError (throwError), runExcept, runExceptT)
+import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT, evalStateT, modify)
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy.Char8 qualified as BL
 import Data.Csv (HasHeader (NoHeader))
@@ -12,6 +12,7 @@ import Data.Csv qualified as Csv
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Vector qualified as V
+import LGPT.Expr (EvalError, EvalState (EvalState, ethat), Expr, evalExpr, handleEvalError)
 import LGPT.Helpers (enumerate)
 import LGPT.Todo (Todo (Todo), TodoList (items), fromTodos, removeIds, toTodos, todosFile)
 import System.Directory (doesFileExist)
@@ -35,6 +36,23 @@ emptyState =
       todos = []
     }
 
+-- Smart constructor which creates EvalState from LGPTState
+fromLGPTState :: LGPTState -> EvalState
+fromLGPTState LGPTState {that} =
+  EvalState
+    { ethat = that
+    }
+
+data LGPTError
+  = EvalErr EvalError
+  deriving (Show, Eq)
+
+handleLGPTError :: LGPTError -> IO ()
+handleLGPTError err = case err of
+  EvalErr err -> handleEvalError err
+
+type LGPT = StateT LGPTState (ExceptT LGPTError IO)
+
 -- Makes the chatbot remember a 'thing' by associating it with 'name'
 memorise :: String -> String -> LGPTState -> LGPTState
 memorise name thing st@LGPTState {memory} = st {memory = Map.insert name thing memory}
@@ -57,7 +75,7 @@ addTodo todo st@LGPTState {todos} = st {todos = todo : todos}
 markDone :: [Int] -> LGPTState -> LGPTState
 markDone ids st@LGPTState {todos} = st {todos = toTodos $ removeIds ids $ fromTodos todos}
 
-loadTodos :: StateT LGPTState IO ()
+loadTodos :: LGPT ()
 loadTodos = do
   exists <- liftIO $ doesFileExist todosFile
   when exists $ do
@@ -66,8 +84,16 @@ loadTodos = do
       Left err -> liftIO $ putStrLn err
       Right decoded -> modify $ \st -> st {todos = V.toList decoded}
 
-saveTodos :: StateT LGPTState IO ()
+saveTodos :: LGPT ()
 saveTodos = do
   st <- get
   let encoded = Csv.encode $ todos st
   liftIO $ BL.writeFile todosFile encoded
+
+runEval :: Expr -> LGPT Int
+runEval expr = do
+  lgptSt <- get
+  let evalSt = fromLGPTState lgptSt
+  case runExcept $ evalStateT (evalExpr expr) evalSt of
+    Left err -> throwError (EvalErr err)
+    Right res -> return res

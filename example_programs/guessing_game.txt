@@ -17,3 +17,5 @@ If guess is answer then
     Say "Well done! You guessed the number".
 Otherwise
     Say "Better luck next time!".
+
+Goodbye.

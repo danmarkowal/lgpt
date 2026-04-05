@@ -9,12 +9,15 @@ code that is included here is a good starting point, but you don't need to
 keep it if you don't want to.
 -}
 import Control.Monad
-import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalStateT, gets, modify)
+import Control.Monad.Except (MonadError (catchError), runExcept, runExceptT)
+import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
+import LGPT.Expr (Expr, evalExpr, parseExpr)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, prompt, runStart)
-import LGPT.Numbers (EvalState (EvalState, ethat), Expr, evalExpr, fromLGPTState, parseExpr, parseLonghand, printLonghand)
-import LGPT.State (LGPTState (LGPTState, active, todos), addTodo, emptyState, loadTodos, markDone, memorise, quit, recall, saveTodos, storeThat)
+import LGPT.Numbers (printLonghand)
+import LGPT.State (LGPT, LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
+import System.Random
 import Text.Megaparsec
 import Text.Megaparsec.Byte.Lexer (decimal)
 import Text.Megaparsec.Char
@@ -28,17 +31,17 @@ import Text.Megaparsec.Char
 -- We have to run the state inside of runREPL since the tests expect runREPL to be of type IO ()
 -- Before running the REPL we load the list of todo items
 runREPL :: IO ()
-runREPL = evalStateT (loadTodos >> loop) emptyState
+runREPL = void $ runExceptT $ runStateT (loadTodos >> loop) emptyState
   where
-    loop :: StateT LGPTState IO ()
+    loop :: LGPT ()
     loop = do
       liftIO $ putStr prompt
       req <- liftIO getLine
-      respondTo $ readRequest req
+      catchError
+        (respondTo $ readRequest req)
+        (liftIO . handleLGPTError)
       st <- get
-      when
-        (active st)
-        loop
+      when (active st) loop
 
 --------------------------------------------------------------------------------
 -- Parsing and responding to requests:
@@ -56,6 +59,7 @@ data Request
   | AddTodo String TodoDay
   | Todos TodoDay
   | Done [Int]
+  | Random Expr Expr
   | Goodbye
   deriving (Eq, Ord, Show)
 
@@ -83,6 +87,7 @@ parseRequest =
       parseAddTodo,
       parseTodos,
       parseDone,
+      parseRandom,
       parseGoodbye
     ]
 
@@ -145,8 +150,13 @@ parseTellMeAbout = do
 
 parseAddTodo :: Parser Request
 parseAddTodo = do
-  string "I need to"
+  string "I"
   space
+  string "need to" <|> string "have to" <|> string "must"
+  space
+  string "do"
+  space
+  -- TODO: Change this parser to allow numerals
   thing <- parseIdentifier "by"
   string "by"
   space
@@ -155,15 +165,22 @@ parseAddTodo = do
   eof
   return $ AddTodo thing by
 
+-- What do I need to (have|need) to do by [date]?
 parseTodos :: Parser Request
 parseTodos = do
-  string "What do I need to do by"
+  string "What do I"
+  space
+  string "have" <|> string "need"
+  space
+  string "to do by"
   space
   by <- parseTodoDay
   string "?"
   eof
   return $ Todos by
 
+-- I've done [ids].
+-- ids -> [decimal] (, [decimal])*
 parseDone :: Parser Request
 parseDone = do
   string "I've done"
@@ -173,6 +190,27 @@ parseDone = do
   eof
   return $ Done ids
 
+-- (Give|Generate) (me)? a (random)? number between [min] and [max].
+parseRandom :: Parser Request
+parseRandom = do
+  string "Give" <|> string "Generate"
+  space
+  optional (string "me" *> space)
+  string "a"
+  space
+  optional (string "random" *> space)
+  string "number between"
+  space
+  min <- parseExpr
+  space
+  string "and"
+  space
+  max <- parseExpr
+  space
+  string "."
+  eof
+  return $ Random min max
+
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
@@ -181,7 +219,7 @@ parseGoodbye = do
 
 -- | Respond to a request. This is where the behaviours of λGPT will go, but
 -- for now it just responds to "Hello".
-respondTo :: Request -> StateT LGPTState IO ()
+respondTo :: Request -> LGPT ()
 respondTo (Unknown err) = liftIO $ do
   putStrLn "I don't understand that."
   putStrLn err
@@ -199,14 +237,9 @@ respondTo (DaysSince start) = liftIO $ do
   let delta = diffDays today start
   putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
 respondTo (WhatIs expr) = do
-  lgptSt <- get
-  let evalSt = fromLGPTState lgptSt
-  -- Have to run evalExpr separately since it returns a different kind of computation
-  case evalStateT (evalExpr expr) evalSt of
-    Left err -> liftIO $ putStrLn err
-    Right res -> do
-      liftIO $ putStrLn $ "The answer is " ++ printLonghand res ++ "."
-      modify $ storeThat res
+  res <- runEval expr
+  modify $ storeThat res
+  liftIO $ putStrLn $ "The answer is " ++ printLonghand res ++ "."
 respondTo (Remember name thing) = do
   modify $ memorise name thing
   liftIO $ putStrLn "Okay."
@@ -232,6 +265,12 @@ respondTo (Done ids) = do
   modify $ markDone ids
   saveTodos
   liftIO $ putStrLn "Noted."
+respondTo (Random minExpr maxExpr) = do
+  min <- runEval minExpr
+  max <- runEval maxExpr
+  num <- liftIO $ randomRIO (min, max)
+  modify $ storeThat num
+  liftIO $ putStrLn $ "Your number is " ++ printLonghand num ++ "."
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit
