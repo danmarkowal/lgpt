@@ -1,5 +1,5 @@
 Let answer be forty-two.
 Let 'the answer' be "forty-two".
 
-What is answer.
-What is 'the answer'.
+What is answer?
+What is 'the answer'?

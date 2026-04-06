@@ -14,23 +14,24 @@ import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runState
 import Data.List (intercalate)
 import Data.Maybe (isJust, isNothing)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asInt, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
+import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asInt, asStr, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
 import LGPT.Numbers (parseLonghand, printLonghand)
-import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
+import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError), LGPTState (LGPTState, active, todos), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import System.Random (randomRIO)
 import Text.Megaparsec
-  ( MonadParsec (eof),
+  ( MonadParsec (eof, try),
     choice,
     errorBundlePretty,
     optional,
     parse,
     sepBy1,
+    some,
     (<|>),
   )
 import Text.Megaparsec.Byte.Lexer (decimal)
-import Text.Megaparsec.Char (char, space, string)
+import Text.Megaparsec.Char (char, eol, space, string)
 
 --------------------------------------------------------------------------------
 
@@ -122,6 +123,7 @@ data Request
   | Let String Expr
   | AskFor InputType
   | Say [Expr]
+  | Run Expr
   | Goodbye
   deriving (Eq, Ord, Show)
 
@@ -147,13 +149,14 @@ parseRequest =
       parseWhatIs,
       parseRemember,
       parseTellMeAbout,
-      parseAddTodo,
+      try parseAddTodo, -- Needed because parseDone also starts with 'I'
       parseTodos,
       parseDone,
       parseRandom,
       parseLet,
       parseAskFor,
       parseSay,
+      parseRun,
       parseGoodbye
     ]
 
@@ -161,19 +164,19 @@ parseHello :: Parser Request
 parseHello = do
   string "Hello"
   optional $ string "." -- For some reason the tests fail if a full stop is required
-  eof
+  endRequest
   return Hello
 
 parseDayToday :: Parser Request
 parseDayToday = do
   string "What day is it?" <|> string "What day is it today?"
-  eof
+  endRequest
   return DayToday
 
 parseDayTomorrow :: Parser Request
 parseDayTomorrow = do
   string "What day is it tomorrow?"
-  eof
+  endRequest
   return DayTomorrow
 
 parseDaysSince :: Parser Request
@@ -182,7 +185,7 @@ parseDaysSince = do
   space
   day <- parseDay
   char '?'
-  eof
+  endRequest
   return (DaysSince day)
 
 parseWhatIs :: Parser Request
@@ -191,7 +194,7 @@ parseWhatIs = do
   space
   expr <- parseExpr
   char '?'
-  eof
+  endRequest
   return $ WhatIs expr
 
 parseRemember :: Parser Request
@@ -204,7 +207,7 @@ parseRemember = do
   space
   thing <- parseIdentifier "."
   char '.'
-  eof
+  endRequest
   return $ Remember name thing
 
 parseTellMeAbout :: Parser Request
@@ -213,6 +216,7 @@ parseTellMeAbout = do
   space
   name <- parseIdentifier "."
   char '.'
+  endRequest
   return $ TellMeAbout name
 
 parseAddTodo :: Parser Request
@@ -221,15 +225,13 @@ parseAddTodo = do
   space
   string "need to" <|> string "have to" <|> string "must"
   space
-  string "do"
-  space
   -- TODO: Change this parser to allow numerals
   thing <- parseIdentifier "by"
   string "by"
   space
   by <- parseTodoDay
   string "."
-  eof
+  endRequest
   return $ AddTodo thing by
 
 -- What do I need to (have|need) to do by [date]?
@@ -243,7 +245,7 @@ parseTodos = do
   space
   by <- parseTodoDay
   string "?"
-  eof
+  endRequest
   return $ Todos by
 
 -- I've done [ids].
@@ -254,7 +256,7 @@ parseDone = do
   space
   ids <- parseIds
   string "."
-  eof
+  endRequest
   return $ Done ids
 
 -- (Give|Generate) (me)? a (random)? number between [min] and [max].
@@ -274,7 +276,7 @@ parseRandom = do
   space
   max <- parseArithmeticExpr
   string "."
-  eof
+  endRequest
   return $ Random min max
 
 parseLet :: Parser Request
@@ -286,6 +288,8 @@ parseLet = do
   string "be"
   space
   expr <- parseExpr
+  string "."
+  endRequest
   return $ Let name expr
 
 parseAskFor :: Parser Request
@@ -295,7 +299,7 @@ parseAskFor = do
   inputType <- parseInputType
   space
   string "."
-  eof
+  endRequest
   return $ AskFor inputType
 
 -- Say [expr][, expr]*.
@@ -305,7 +309,17 @@ parseSay = do
   space
   exprs <- parseExpr `sepBy1` string ", "
   string "."
+  endRequest
   return $ Say exprs
+
+parseRun :: Parser Request
+parseRun = do
+  string "Run"
+  space
+  expr <- parseExpr
+  string "."
+  endRequest
+  return $ Run expr
 
 parseGoodbye :: Parser Request
 parseGoodbye = do
@@ -313,6 +327,12 @@ parseGoodbye = do
   optional $ string "."
   eof
   return Goodbye
+
+endRequest :: Parser ()
+endRequest = void eol <|> eof
+
+parseProgram :: Parser Block
+parseProgram = some parseRequest
 
 -- | Respond to a request. This is where the behaviours of λGPT will go, but
 -- for now it just responds to "Hello".
@@ -383,6 +403,16 @@ respondTo (AskFor inputType) = do
 respondTo (Say exprs) = do
   vals <- mapM (runEval . evalExpr) exprs
   liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
+respondTo (Run expr) = do
+  filename <- runEval (evalExpr expr >>= asStr)
+  ensureFileExists filename
+  content <- liftIO $ readFile filename
+  -- Empty lines are ignored
+  let src = intercalate "\n" $ filter (not . null) $ lines content
+  program <- case parse parseProgram filename src of
+    Left err -> return [Unknown (errorBundlePretty err)]
+    Right val -> return val
+  mapM_ respondTo program
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit

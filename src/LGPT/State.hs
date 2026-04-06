@@ -2,7 +2,7 @@
 {- HLINT ignore "Use newtype instead of data" -}
 module LGPT.State where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.Except (Except, ExceptT, MonadError (throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT, evalStateT, modify)
 import Data.ByteString.Char8 qualified as BS
@@ -52,6 +52,7 @@ data LGPTError
   | FutureDayError Day
   | InvalidDayError
   | InvalidInputError
+  | FileNotExistsError String
   deriving (Show, Eq)
 
 handleLGPTError :: LGPTError -> IO ()
@@ -60,6 +61,7 @@ handleLGPTError err = case err of
   FutureDayError day -> putStrLn $ show day ++ " is in the future."
   InvalidDayError -> putStrLn "That's not a real day."
   InvalidInputError -> putStrLn "Your input doesn't look right."
+  FileNotExistsError filename -> putStrLn $ filename ++ " does not exist."
 
 type LGPT = StateT LGPTState (ExceptT LGPTError IO)
 
@@ -118,3 +120,8 @@ validate :: LGPTError -> Maybe a -> LGPT a
 validate err mval = case mval of
   Nothing -> throwError err
   Just val -> return val
+
+ensureFileExists :: String -> LGPT ()
+ensureFileExists filename = do
+  exists <- liftIO $ doesFileExist filename
+  unless exists (throwError $ FileNotExistsError filename)
