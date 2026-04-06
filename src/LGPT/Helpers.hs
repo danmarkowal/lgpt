@@ -95,7 +95,3 @@ parseIdentifier delimiter = unwords <$> manyTill parseWord (lookAhead (string de
 -- https://stackoverflow.com/questions/6472883/using-list-elements-and-indices-together
 enumerate :: [a] -> [(Int, a)]
 enumerate = zip [0 ..]
-
--- Represents a value that has been checked
--- The checked value can be valid (Right) or invalid (Left)
-type Checked a = Either a a
