@@ -73,6 +73,9 @@ recall name LGPTState {memory} = Map.lookup name memory
 storeThat :: Val -> LGPTState -> LGPTState
 storeThat value st@LGPTState {that} = st {that = Just value}
 
+storeVar :: String -> Val -> LGPTState -> LGPTState
+storeVar name val st@LGPTState {vars} = st {vars = Map.insert name val vars}
+
 -- Sets bot's state to inactive to indicate that a user has quit
 quit :: LGPTState -> LGPTState
 quit st = st {active = False}

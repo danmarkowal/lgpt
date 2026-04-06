@@ -6,6 +6,8 @@ import Control.Monad (when)
 import Data.Foldable qualified as Map
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Time (Day, LocalTime (localDay), ZonedTime (zonedTimeToLocalTime), dayOfWeek, defaultTimeLocale, fromGregorian, fromGregorianValid, getZonedTime, parseTimeM)
 import Data.Void (Void)
 import System.Console.ANSI
@@ -82,11 +84,12 @@ lexeme p = p <* space
 symbol :: String -> Parser String
 symbol s = lexeme (string s)
 
+parseWord :: Parser String
+parseWord = lexeme $ some letterChar
+
 -- Parses an identifier which ends with a delimiter (e.g. 'is')
 parseIdentifier :: String -> Parser String
-parseIdentifier delimiter = unwords <$> manyTill word (lookAhead (string delimiter))
-  where
-    word = some letterChar <* space
+parseIdentifier delimiter = unwords <$> manyTill parseWord (lookAhead (string delimiter))
 
 -- Iterate over a list with indices
 -- https://stackoverflow.com/questions/6472883/using-list-elements-and-indices-together

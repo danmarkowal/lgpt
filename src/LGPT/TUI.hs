@@ -12,10 +12,10 @@ import Control.Monad
 import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Expr (Expr, Val (IntVal), asInt, evalExpr, parseExpr)
+import LGPT.Expr (Expr, Val (IntVal), asInt, evalExpr, parseExpr, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, prompt, runStart)
 import LGPT.Numbers (printLonghand)
-import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, validate)
+import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import System.Random
 import Text.Megaparsec
@@ -60,6 +60,7 @@ data Request
   | Todos (Maybe TodoDay)
   | Done [Int]
   | Random Expr Expr
+  | Let String Expr
   | Goodbye
   deriving (Eq, Ord, Show)
 
@@ -89,6 +90,7 @@ parseRequest =
       parseTodos,
       parseDone,
       parseRandom,
+      parseLet,
       parseGoodbye
     ]
 
@@ -212,6 +214,17 @@ parseRandom = do
   eof
   return $ Random min max
 
+parseLet :: Parser Request
+parseLet = do
+  string "Let"
+  space
+  name <- parseVarName
+  space
+  string "be"
+  space
+  expr <- parseExpr
+  return $ Let name expr
+
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
@@ -274,6 +287,10 @@ respondTo (Random minExpr maxExpr) = do
   num <- liftIO $ randomRIO (min, max)
   modify $ storeThat (IntVal num)
   liftIO $ putStrLn $ "Your number is " ++ show num ++ "."
+respondTo (Let name expr) = do
+  val <- runEval (evalExpr expr)
+  modify $ storeVar name val
+  liftIO $ putStrLn "Stored."
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit
