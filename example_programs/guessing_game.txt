@@ -14,8 +14,8 @@ Repeat
 until guess is answer or guesses is three.
 
 If guess is answer then
-    Say line "Well done! You guessed the number".
+    Say "Well done! You guessed the number".
 otherwise
-    Say line "Better luck next time!".
+    Say "Better luck next time!".
 
 Goodbye.

@@ -87,7 +87,7 @@ data Expr
 
 -- This could be replaced with 'between'
 parseStrLiteral :: Parser Val
-parseStrLiteral = do
+parseStrLiteral = lexeme $ do
   char '"'
   str <- parseText (void $ char '"')
   char '"'
@@ -229,8 +229,8 @@ evalExpr (Minus a b) = IntVal <$> evalBinOp (-) asInt a b
 evalExpr (Times a b) = IntVal <$> evalBinOp (*) asInt a b
 evalExpr (And a b) = BoolVal <$> evalBinOp (&&) asBool a b
 evalExpr (Or a b) = BoolVal <$> evalBinOp (||) asBool a b
-evalExpr (Is a b) = BoolVal <$> evalBinOp (==) return a b -- Checks type and value
-evalExpr (IsNot a b) = BoolVal <$> evalBinOp (/=) return a b
+evalExpr (Is a b) = BoolVal <$> evalBinOp (==) pure a b -- Checks type and value
+evalExpr (IsNot a b) = BoolVal <$> evalBinOp (/=) pure a b
 evalExpr (IsGreaterThan a b) = BoolVal <$> evalBinOp (>) asInt a b
 evalExpr (IsLessThan a b) = BoolVal <$> evalBinOp (<) asInt a b
 evalExpr (IsAtLeast a b) = BoolVal <$> evalBinOp (>=) asInt a b

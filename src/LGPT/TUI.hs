@@ -8,19 +8,29 @@ You can create or modify any files in src/ as much as you like. The
 code that is included here is a good starting point, but you don't need to
 keep it if you don't want to.
 -}
-import Control.Monad
+import Control.Monad (void, when)
 import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
+import Data.List (intercalate)
+import Data.Maybe (isJust, isNothing)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
 import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asInt, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
 import LGPT.Numbers (parseLonghand, printLonghand)
 import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
-import System.Random
+import System.Random (randomRIO)
 import Text.Megaparsec
+  ( MonadParsec (eof),
+    choice,
+    errorBundlePretty,
+    optional,
+    parse,
+    sepBy1,
+    (<|>),
+  )
 import Text.Megaparsec.Byte.Lexer (decimal)
-import Text.Megaparsec.Char
+import Text.Megaparsec.Char (char, space, string)
 
 --------------------------------------------------------------------------------
 
@@ -68,6 +78,29 @@ parseInputType =
       <|> BoolInput
     <$ (symbol "a truth value" <|> symbol "a boolean" <|> symbol "a bool")
 
+newtype InputVal
+  = InputVal Val
+  deriving (Eq)
+
+-- Strip quotes from strings when printing in the terminal
+instance Show InputVal where
+  show :: InputVal -> String
+  show (InputVal val) = case val of
+    StrVal v -> v
+    v -> show v
+
+parseInput :: InputType -> String -> LGPT Val
+parseInput inputType input = case parse helper "<stdin>" input of
+  Left err -> throwError InvalidInputError
+  Right val -> return val
+  where
+    helper :: Parser Val
+    helper = case inputType of
+      -- We can't use parseStrLiteral because it expects double quotes
+      StrInput -> StrVal <$> parseText eof
+      IntInput -> parseIntLiteral
+      BoolInput -> parseBoolLiteral
+
 -- | Our request type, the result of parsing a string.
 data Request
   = Unknown String
@@ -84,6 +117,7 @@ data Request
   | Random Expr Expr
   | Let String Expr
   | AskFor InputType
+  | Say [Expr]
   | Goodbye
   deriving (Eq, Ord, Show)
 
@@ -115,6 +149,7 @@ parseRequest =
       parseRandom,
       parseLet,
       parseAskFor,
+      parseSay,
       parseGoodbye
     ]
 
@@ -258,23 +293,19 @@ parseAskFor = do
   eof
   return $ AskFor inputType
 
+parseSay :: Parser Request
+parseSay = do
+  string "Say"
+  space
+  exprs <- parseExpr `sepBy1` string ", "
+  string "."
+  return $ Say exprs
+
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
   eof
   return Goodbye
-
-parseInput :: InputType -> String -> LGPT Val
-parseInput inputType input = case parse helper "<stdin>" input of
-  Left err -> throwError InvalidInputError
-  Right val -> return val
-  where
-    helper :: Parser Val
-    helper = case inputType of
-      -- We can't use parseStrLiteral because it expects double quotes
-      StrInput -> StrVal <$> parseText eof
-      IntInput -> parseIntLiteral
-      BoolInput -> parseBoolLiteral
 
 -- | Respond to a request. This is where the behaviours of λGPT will go, but
 -- for now it just responds to "Hello".
@@ -342,6 +373,9 @@ respondTo (AskFor inputType) = do
   val <- parseInput inputType input
   modify $ storeThat val
   liftIO $ putStrLn "Thank you!"
+respondTo (Say exprs) = do
+  vals <- mapM (runEval . evalExpr) exprs
+  liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit
