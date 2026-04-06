@@ -51,6 +51,7 @@ data LGPTError
   = EvalErr EvalError
   | FutureDayError Day
   | InvalidDayError
+  | InvalidInputError
   deriving (Show, Eq)
 
 handleLGPTError :: LGPTError -> IO ()
@@ -58,6 +59,7 @@ handleLGPTError err = case err of
   EvalErr err -> handleEvalError err
   FutureDayError day -> putStrLn $ show day ++ " is in the future."
   InvalidDayError -> putStrLn "That's not a real day."
+  InvalidInputError -> putStrLn "Your input doesn't look right."
 
 type LGPT = StateT LGPTState (ExceptT LGPTError IO)
 

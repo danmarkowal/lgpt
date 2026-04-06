@@ -1,6 +1,7 @@
 {- HLINT ignore "Use newtype instead of data" -}
 module LGPT.Expr where
 
+import Control.Monad (void)
 import Control.Monad.Combinators.Expr (Operator (InfixL), makeExprParser)
 import Control.Monad.Except (Except, ExceptT, MonadError (throwError))
 import Control.Monad.State (MonadState (get), MonadTrans (lift), StateT, gets)
@@ -8,10 +9,11 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
-import LGPT.Helpers (Parser, lexeme, parseIdentifier, parseWord, symbol)
+import LGPT.Helpers (Parser, lexeme, parseIdentifier, parseText, parseWord, symbol)
 import LGPT.Numbers (oneToNine, parseLonghand, printLonghand, tenToTwenty, tens)
-import Text.Megaparsec ((<|>))
+import Text.Megaparsec (MonadParsec (eof), between, (<|>))
 import Text.Megaparsec.Byte (string)
+import Text.Megaparsec.Char (char)
 
 data ValType
   = StrType
@@ -38,6 +40,7 @@ data Val
 instance Show Val where
   show :: Val -> String
   show val = case val of
+    StrVal v -> "\"" ++ v ++ "\""
     IntVal v -> printLonghand v
     BoolVal v -> if v then "true" else "false"
 
@@ -82,14 +85,22 @@ data Expr
   | That -- "that"
   deriving (Eq, Ord, Show)
 
-parseLiteral :: Parser Expr
-parseLiteral = parseIntLiteral <|> parseBoolLiteral
-  where
-    parseIntLiteral :: Parser Expr
-    parseIntLiteral = Literal . IntVal <$> lexeme parseLonghand
+-- This could be replaced with 'between'
+parseStrLiteral :: Parser Val
+parseStrLiteral = do
+  char '"'
+  str <- parseText (void $ char '"')
+  char '"'
+  return $ StrVal str
 
-    parseBoolLiteral :: Parser Expr
-    parseBoolLiteral = Literal (BoolVal True) <$ symbol "true" <|> Literal (BoolVal False) <$ symbol "false"
+parseIntLiteral :: Parser Val
+parseIntLiteral = IntVal <$> lexeme parseLonghand
+
+parseBoolLiteral :: Parser Val
+parseBoolLiteral = BoolVal True <$ symbol "true" <|> BoolVal False <$ symbol "false"
+
+parseLiteral :: Parser Expr
+parseLiteral = Literal <$> (parseStrLiteral <|> parseIntLiteral <|> parseBoolLiteral)
 
 parseVar :: Parser Expr
 parseVar = Var <$> parseVarName
@@ -114,7 +125,9 @@ reservedNames =
       "most",
       "not",
       "and",
-      "or"
+      "or",
+      "true",
+      "false"
     ]
       ++ ["zero"]
       ++ oneToNine
@@ -152,6 +165,13 @@ parseTerm = parseLiteral <|> parseThat <|> parseVar
 parseExpr :: Parser Expr
 parseExpr = makeExprParser parseTerm opTable
 
+arithmeticOps :: [Operator Parser Expr]
+arithmeticOps =
+  [ InfixL (Plus <$ symbol "plus"),
+    InfixL (Minus <$ symbol "minus"),
+    InfixL (Times <$ symbol "times")
+  ]
+
 -- Arithmetic operations: highest precedence
 -- Comparisons: medium precedence
 -- Boolean operators: lowest precedence
@@ -159,10 +179,7 @@ parseExpr = makeExprParser parseTerm opTable
 --      ((2 + 2) >= (4)) && ((10) == (9 + 1))
 opTable :: [[Operator Parser Expr]]
 opTable =
-  [ [ InfixL (Plus <$ symbol "plus"),
-      InfixL (Minus <$ symbol "minus"),
-      InfixL (Times <$ symbol "times")
-    ],
+  [ arithmeticOps,
     [ InfixL (IsGreaterThan <$ symbol "is greater than"),
       InfixL (IsLessThan <$ symbol "is less than"),
       InfixL (IsAtLeast <$ symbol "is at least"),
@@ -174,6 +191,10 @@ opTable =
       InfixL (Or <$ symbol "or")
     ]
   ]
+
+-- In some expressions (e.g. random) we don't want words like 'and' to appear
+parseArithmeticExpr :: Parser Expr
+parseArithmeticExpr = makeExprParser parseTerm [arithmeticOps]
 
 -- This is its own separate data type as I might add more features to the evaluator later
 data EvalState

@@ -13,7 +13,7 @@ import Data.Void (Void)
 import System.Console.ANSI
 import System.IO
 import Text.Megaparsec
-import Text.Megaparsec.Char (char, letterChar, space, string)
+import Text.Megaparsec.Char (alphaNumChar, char, letterChar, punctuationChar, space, spaceChar, string, symbolChar)
 import Text.Megaparsec.Char.Lexer (decimal)
 
 -- | Our Parser monad is a specialisation of the complex "Parsec" type
@@ -90,6 +90,10 @@ parseWord = lexeme $ some letterChar
 -- Parses an identifier which ends with a delimiter (e.g. 'is')
 parseIdentifier :: String -> Parser String
 parseIdentifier delimiter = unwords <$> manyTill parseWord (lookAhead (string delimiter))
+
+-- Parses the text contents of a string
+parseText :: Parser () -> Parser String
+parseText delimiter = manyTill (alphaNumChar <|> punctuationChar <|> symbolChar <|> spaceChar) (lookAhead delimiter)
 
 -- Iterate over a list with indices
 -- https://stackoverflow.com/questions/6472883/using-list-elements-and-indices-together

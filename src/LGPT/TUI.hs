@@ -12,10 +12,10 @@ import Control.Monad
 import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Expr (Expr, Val (IntVal), asInt, evalExpr, parseExpr, parseVarName)
-import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, prompt, runStart)
-import LGPT.Numbers (printLonghand)
-import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
+import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asInt, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
+import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
+import LGPT.Numbers (parseLonghand, printLonghand)
+import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import System.Random
 import Text.Megaparsec
@@ -46,6 +46,28 @@ runREPL = void $ runExceptT $ evalStateT (loadTodos >> loop) emptyState
 --------------------------------------------------------------------------------
 -- Parsing and responding to requests:
 
+data InputType
+  = StrInput
+  | IntInput
+  | BoolInput
+  deriving (Eq, Ord)
+
+instance Show InputType where
+  show :: InputType -> String
+  show inputType = case inputType of
+    StrInput -> "some text"
+    IntInput -> "a number"
+    BoolInput -> "a truth value"
+
+parseInputType :: Parser InputType
+parseInputType =
+  StrInput
+    <$ (symbol "some text" <|> symbol "a string")
+      <|> IntInput
+    <$ (symbol "a number" <|> symbol "an integer")
+      <|> BoolInput
+    <$ (symbol "a truth value" <|> symbol "a boolean" <|> symbol "a bool")
+
 -- | Our request type, the result of parsing a string.
 data Request
   = Unknown String
@@ -61,6 +83,7 @@ data Request
   | Done [Int]
   | Random Expr Expr
   | Let String Expr
+  | AskFor InputType
   | Goodbye
   deriving (Eq, Ord, Show)
 
@@ -91,6 +114,7 @@ parseRequest =
       parseDone,
       parseRandom,
       parseLet,
+      parseAskFor,
       parseGoodbye
     ]
 
@@ -204,12 +228,11 @@ parseRandom = do
   optional (string "random" *> space)
   string "number between"
   space
-  min <- parseExpr
+  min <- parseArithmeticExpr
   space
   string "and"
   space
-  max <- parseExpr
-  space
+  max <- parseArithmeticExpr
   string "."
   eof
   return $ Random min max
@@ -225,11 +248,33 @@ parseLet = do
   expr <- parseExpr
   return $ Let name expr
 
+parseAskFor :: Parser Request
+parseAskFor = do
+  string "Ask for"
+  space
+  inputType <- parseInputType
+  space
+  string "."
+  eof
+  return $ AskFor inputType
+
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
   eof
   return Goodbye
+
+parseInput :: InputType -> String -> LGPT Val
+parseInput inputType input = case parse helper "<stdin>" input of
+  Left err -> throwError InvalidInputError
+  Right val -> return val
+  where
+    helper :: Parser Val
+    helper = case inputType of
+      -- We can't use parseStrLiteral because it expects double quotes
+      StrInput -> StrVal <$> parseText eof
+      IntInput -> parseIntLiteral
+      BoolInput -> parseBoolLiteral
 
 -- | Respond to a request. This is where the behaviours of λGPT will go, but
 -- for now it just responds to "Hello".
@@ -286,11 +331,17 @@ respondTo (Random minExpr maxExpr) = do
   max <- runEval (evalExpr maxExpr >>= asInt)
   num <- liftIO $ randomRIO (min, max)
   modify $ storeThat (IntVal num)
-  liftIO $ putStrLn $ "Your number is " ++ show num ++ "."
+  liftIO $ putStrLn $ "Your number is " ++ printLonghand num ++ "."
 respondTo (Let name expr) = do
   val <- runEval (evalExpr expr)
   modify $ storeVar name val
   liftIO $ putStrLn "Stored."
+respondTo (AskFor inputType) = do
+  liftIO $ putStr $ "Enter " ++ show inputType ++ ": "
+  input <- liftIO getLine
+  val <- parseInput inputType input
+  modify $ storeThat val
+  liftIO $ putStrLn "Thank you!"
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit
