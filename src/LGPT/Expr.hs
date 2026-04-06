@@ -15,6 +15,8 @@ import Text.Megaparsec (MonadParsec (eof), between, (<|>))
 import Text.Megaparsec.Byte (string)
 import Text.Megaparsec.Char (char)
 
+-- ValType represents the data types of our values
+-- Val represents an instance of a particular data type
 data ValType
   = StrType
   | IntType
@@ -44,13 +46,20 @@ instance Show Val where
     IntVal v -> printLonghand v
     BoolVal v -> if v then "true" else "false"
 
+-- Returns the type of a value
 typeOf :: Val -> ValType
 typeOf val = case val of
+  StrVal _ -> StrType
   IntVal _ -> IntType
   BoolVal _ -> BoolType
 
--- Could implement this as an alternative
+-- Could implement this as an alternative if more data types are added
 -- https://stackoverflow.com/questions/6047522/haskell-type-and-pattern-matching-question-extracting-fields-from-a-data-type
+asStr :: Val -> EvalExpr String
+asStr val = case val of
+  StrVal v -> return v
+  v -> throwError $ UnexpectedType StrType (typeOf v)
+
 asInt :: Val -> EvalExpr Int
 asInt val = case val of
   IntVal v -> return v
@@ -60,11 +69,6 @@ asBool :: Val -> EvalExpr Bool
 asBool val = case val of
   BoolVal v -> return v
   v -> throwError $ UnexpectedType BoolType (typeOf v)
-
-asStr :: Val -> EvalExpr String
-asStr val = case val of
-  StrVal v -> return v
-  v -> throwError $ UnexpectedType StrType (typeOf v)
 
 -- Tree-like data structure for expressions
 data Expr
@@ -88,9 +92,9 @@ data Expr
 -- This could be replaced with 'between'
 parseStrLiteral :: Parser Val
 parseStrLiteral = lexeme $ do
-  char '"'
+  string "\""
   str <- parseText (void $ char '"')
-  char '"'
+  string "\""
   return $ StrVal str
 
 parseIntLiteral :: Parser Val
@@ -134,22 +138,27 @@ reservedNames =
       ++ tenToTwenty
       ++ tens
 
+-- Parses a variable name in the form [name] or '[name]'
 parseVarName :: Parser String
 parseVarName = parseShort <|> parseLong
   where
     parseShort :: Parser String
     parseShort = do
       name <- parseWord
-      if Set.member name reservedNames
-        then fail $ "Reserved word " ++ name ++ " cannot be a variable name."
-        else return name
+      ensureNotReserved name
 
     parseLong :: Parser String
-    parseLong = do
+    parseLong = lexeme $ do
       string "'"
       name <- parseIdentifier "'"
       string "'"
-      return name
+      ensureNotReserved name
+
+    ensureNotReserved :: String -> Parser String
+    ensureNotReserved name =
+      if Set.member name reservedNames
+        then fail $ "Reserved word " ++ name ++ " cannot be a variable name."
+        else return name
 
 parseThat :: Parser Expr
 parseThat = That <$ symbol "that"
@@ -210,6 +219,7 @@ data EvalError
   | UndefinedVariable String
   deriving (Show, Eq)
 
+-- Eval errors are propagated to the LGPT monad and are handled from there
 handleEvalError :: EvalError -> IO ()
 handleEvalError err = case err of
   NotEvaluated -> putStrLn "I haven't evaluated anything yet."

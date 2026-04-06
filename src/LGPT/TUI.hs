@@ -56,6 +56,7 @@ runREPL = void $ runExceptT $ evalStateT (loadTodos >> loop) emptyState
 --------------------------------------------------------------------------------
 -- Parsing and responding to requests:
 
+-- The type of input we can ask a user for
 data InputType
   = StrInput
   | IntInput
@@ -69,6 +70,7 @@ instance Show InputType where
     IntInput -> "a number"
     BoolInput -> "a truth value"
 
+-- Used in parseAskFor to determine the input to ask for
 parseInputType :: Parser InputType
 parseInputType =
   StrInput
@@ -78,6 +80,7 @@ parseInputType =
       <|> BoolInput
     <$ (symbol "a truth value" <|> symbol "a boolean" <|> symbol "a bool")
 
+-- A wrapper around val which we use to print values with "Say"
 newtype InputVal
   = InputVal Val
   deriving (Eq)
@@ -89,6 +92,7 @@ instance Show InputVal where
     StrVal v -> v
     v -> show v
 
+-- Parses the input entered by the user to ensure it is of the correct form
 parseInput :: InputType -> String -> LGPT Val
 parseInput inputType input = case parse helper "<stdin>" input of
   Left err -> throwError InvalidInputError
@@ -156,6 +160,7 @@ parseRequest =
 parseHello :: Parser Request
 parseHello = do
   string "Hello"
+  optional $ string "." -- For some reason the tests fail if a full stop is required
   eof
   return Hello
 
@@ -293,6 +298,7 @@ parseAskFor = do
   eof
   return $ AskFor inputType
 
+-- Say [expr][, expr]*.
 parseSay :: Parser Request
 parseSay = do
   string "Say"
@@ -304,6 +310,7 @@ parseSay = do
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
+  optional $ string "."
   eof
   return Goodbye
 
