@@ -73,8 +73,8 @@ fromTodoDay todoDay = do
     Today -> today
     Tomorrow -> addDays 1 today
 
-parseTodoDay :: Parser TodoDay
-parseTodoDay = SpecificDay <$> parseDay <|> Today <$ string "today" <|> Tomorrow <$ string "tomorrow"
+parseTodoDay :: Parser (Maybe TodoDay)
+parseTodoDay = fmap (fmap SpecificDay) parseDay <|> Just Today <$ string "today" <|> Just Tomorrow <$ string "tomorrow"
 
 -- e.g. 1, 2, 3 ...
 parseIds :: Parser [Int]

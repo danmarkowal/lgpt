@@ -6,7 +6,7 @@ import Control.Monad (when)
 import Data.Foldable qualified as Map
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Time (Day, LocalTime (localDay), ZonedTime (zonedTimeToLocalTime), dayOfWeek, defaultTimeLocale, fromGregorian, getZonedTime, parseTimeM)
+import Data.Time (Day, LocalTime (localDay), ZonedTime (zonedTimeToLocalTime), dayOfWeek, defaultTimeLocale, fromGregorian, fromGregorianValid, getZonedTime, parseTimeM)
 import Data.Void (Void)
 import System.Console.ANSI
 import System.IO
@@ -61,7 +61,7 @@ runStart = do
 -- Helper functions for parsing:
 
 -- Parses a day in the form '%Y-%M-%D'
-parseDay :: Parser Day
+parseDay :: Parser (Maybe Day)
 parseDay = do
   year <- decimal
   char '-'
@@ -69,7 +69,7 @@ parseDay = do
   char '-'
   day <- decimal
   -- TODO: Use fromGregorianValid to prevent invalid dates from being accepted
-  return $ fromGregorian year month day
+  return $ fromGregorianValid year month day
 
 -- Returns the day today according to local time
 dayToday :: IO Day
@@ -93,3 +93,7 @@ parseIdentifier delimiter = unwords <$> manyTill word (lookAhead (string delimit
 -- https://stackoverflow.com/questions/6472883/using-list-elements-and-indices-together
 enumerate :: [a] -> [(Int, a)]
 enumerate = zip [0 ..]
+
+-- Represents a value that has been checked
+-- The checked value can be valid (Right) or invalid (Left)
+type Checked a = Either a a

@@ -11,6 +11,7 @@ import Data.Csv (HasHeader (NoHeader))
 import Data.Csv qualified as Csv
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Time (Day)
 import Data.Vector qualified as V
 import LGPT.Expr (EvalError, EvalState (EvalState, ethat), Expr, evalExpr, handleEvalError)
 import LGPT.Helpers (enumerate)
@@ -45,11 +46,15 @@ fromLGPTState LGPTState {that} =
 
 data LGPTError
   = EvalErr EvalError
+  | FutureDayError Day
+  | InvalidDayError
   deriving (Show, Eq)
 
 handleLGPTError :: LGPTError -> IO ()
 handleLGPTError err = case err of
   EvalErr err -> handleEvalError err
+  FutureDayError day -> putStrLn $ show day ++ " is in the future."
+  InvalidDayError -> putStrLn "That's not a real day."
 
 type LGPT = StateT LGPTState (ExceptT LGPTError IO)
 
@@ -90,6 +95,7 @@ saveTodos = do
   let encoded = Csv.encode $ todos st
   liftIO $ BL.writeFile todosFile encoded
 
+-- Evaluates an expression and propagates up any evaluation errors
 runEval :: Expr -> LGPT Int
 runEval expr = do
   lgptSt <- get
@@ -97,3 +103,10 @@ runEval expr = do
   case runExcept $ evalStateT (evalExpr expr) evalSt of
     Left err -> throwError (EvalErr err)
     Right res -> return res
+
+-- 'Validates' a Maybe
+-- Throws err if it is Nothing, otherwise returns the value in the Maybe
+validate :: LGPTError -> Maybe a -> LGPT a
+validate err mval = case mval of
+  Nothing -> throwError err
+  Just val -> return val

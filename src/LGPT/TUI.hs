@@ -9,13 +9,13 @@ code that is included here is a good starting point, but you don't need to
 keep it if you don't want to.
 -}
 import Control.Monad
-import Control.Monad.Except (MonadError (catchError), runExcept, runExceptT)
+import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
 import LGPT.Expr (Expr, evalExpr, parseExpr)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, prompt, runStart)
 import LGPT.Numbers (printLonghand)
-import LGPT.State (LGPT, LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat)
+import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import System.Random
 import Text.Megaparsec
@@ -31,7 +31,7 @@ import Text.Megaparsec.Char
 -- We have to run the state inside of runREPL since the tests expect runREPL to be of type IO ()
 -- Before running the REPL we load the list of todo items
 runREPL :: IO ()
-runREPL = void $ runExceptT $ runStateT (loadTodos >> loop) emptyState
+runREPL = void $ runExceptT $ evalStateT (loadTodos >> loop) emptyState
   where
     loop :: LGPT ()
     loop = do
@@ -52,12 +52,12 @@ data Request
   | Hello
   | DayToday
   | DayTomorrow
-  | DaysSince Day
+  | DaysSince (Maybe Day)
   | WhatIs Expr
   | Remember String String
   | TellMeAbout String
-  | AddTodo String TodoDay
-  | Todos TodoDay
+  | AddTodo String (Maybe TodoDay)
+  | Todos (Maybe TodoDay)
   | Done [Int]
   | Random Expr Expr
   | Goodbye
@@ -231,11 +231,12 @@ respondTo DayTomorrow = liftIO $ do
   today <- dayToday
   let dotw = dayOfWeek $ addDays 1 today
   putStrLn $ "Tomorrow is " ++ show dotw ++ "."
-respondTo (DaysSince start) = liftIO $ do
-  today <- dayToday
-  -- TODO: Prevent this from returning negatives
+respondTo (DaysSince mstart) = do
+  today <- liftIO dayToday
+  start <- validate InvalidDayError mstart
   let delta = diffDays today start
-  putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
+  when (delta < 0) (throwError $ FutureDayError start)
+  liftIO $ putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
 respondTo (WhatIs expr) = do
   res <- runEval expr
   modify $ storeThat res
@@ -248,14 +249,15 @@ respondTo (TellMeAbout name) = do
   liftIO $ case mthing of
     Nothing -> putStrLn $ "Sorry, I don't know anything about " ++ name ++ "."
     Just thing -> putStrLn $ "Sure - " ++ name ++ " is " ++ thing ++ "."
-respondTo (AddTodo thing by) = do
+respondTo (AddTodo thing mby) = do
+  by <- validate InvalidDayError mby
   todo <- liftIO $ mkTodo thing by
   modify $ addTodo todo
   saveTodos
   liftIO $ putStrLn "Noted."
-respondTo (Todos by) = do
+respondTo (Todos mby) = do
+  by <- validate InvalidDayError mby >>= liftIO . fromTodoDay
   st <- get
-  by <- liftIO $ fromTodoDay by
   let todoList = filterBefore by $ fromTodos (todos st)
   liftIO $
     if null (items todoList)
