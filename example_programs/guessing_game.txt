@@ -1,21 +1,21 @@
-Give me a random number between zero and one hundred.
+Give me a random number between zero and ten.
 
-Remember that answer is that.
-Remember that guess is one thousand.
-Remember that guesses is zero.
+Let answer be that.
+Let guess be one thousand.
+Let guesses be zero.
 
 Repeat
     Ask for a number.
     If that is greater than one hundred then
         Say "your guess must be in the range zero to one hundred".
-    Otherwise
+    otherwise
         Remember that guess is that.
         Remember that guesses is guesses plus one.
 until guess is answer or guesses is three.
 
 If guess is answer then
-    Say "Well done! You guessed the number".
-Otherwise
-    Say "Better luck next time!".
+    Say line "Well done! You guessed the number".
+otherwise
+    Say line "Better luck next time!".
 
 Goodbye.

@@ -12,7 +12,7 @@ import Control.Monad
 import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Expr (Expr, evalExpr, parseExpr)
+import LGPT.Expr (Expr, Val (IntVal), asInt, evalExpr, parseExpr)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, prompt, runStart)
 import LGPT.Numbers (printLonghand)
 import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError), LGPTState (LGPTState, active, todos), addTodo, emptyState, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, validate)
@@ -63,6 +63,7 @@ data Request
   | Goodbye
   deriving (Eq, Ord, Show)
 
+-- Represents a block of 'code' (a series of statements one line after another)
 type Block = [Request]
 
 -- | Read a request.
@@ -238,9 +239,9 @@ respondTo (DaysSince mstart) = do
   when (delta < 0) (throwError $ FutureDayError start)
   liftIO $ putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
 respondTo (WhatIs expr) = do
-  res <- runEval expr
+  res <- runEval (evalExpr expr)
   modify $ storeThat res
-  liftIO $ putStrLn $ "The answer is " ++ printLonghand res ++ "."
+  liftIO $ putStrLn $ "The answer is " ++ show res ++ "."
 respondTo (Remember name thing) = do
   modify $ memorise name thing
   liftIO $ putStrLn "Okay."
@@ -268,11 +269,11 @@ respondTo (Done ids) = do
   saveTodos
   liftIO $ putStrLn "Noted."
 respondTo (Random minExpr maxExpr) = do
-  min <- runEval minExpr
-  max <- runEval maxExpr
+  min <- runEval (evalExpr minExpr >>= asInt)
+  max <- runEval (evalExpr maxExpr >>= asInt)
   num <- liftIO $ randomRIO (min, max)
-  modify $ storeThat num
-  liftIO $ putStrLn $ "Your number is " ++ printLonghand num ++ "."
+  modify $ storeThat (IntVal num)
+  liftIO $ putStrLn $ "Your number is " ++ show num ++ "."
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit

@@ -68,7 +68,6 @@ parseDay = do
   month <- decimal
   char '-'
   day <- decimal
-  -- TODO: Use fromGregorianValid to prevent invalid dates from being accepted
   return $ fromGregorianValid year month day
 
 -- Returns the day today according to local time

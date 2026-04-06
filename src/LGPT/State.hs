@@ -13,7 +13,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Time (Day)
 import Data.Vector qualified as V
-import LGPT.Expr (EvalError, EvalState (EvalState, ethat), Expr, evalExpr, handleEvalError)
+import LGPT.Expr (EvalError, EvalExpr, EvalState (EvalState, ethat, evars), Expr, Val, evalExpr, handleEvalError)
 import LGPT.Helpers (enumerate)
 import LGPT.Todo (Todo (Todo), TodoList (items), fromTodos, removeIds, toTodos, todosFile)
 import System.Directory (doesFileExist)
@@ -21,7 +21,8 @@ import System.Directory (doesFileExist)
 -- I chose to use a data structure rather than a tuple since it automatically generates accessors
 data LGPTState = LGPTState
   { memory :: Map String String, -- Key-value map of memory (e.g. the sky: is blue)
-    that :: Maybe Int, -- Value of the last evaluated expression
+    vars :: Map String Val,
+    that :: Maybe Val, -- Value of the last evaluated expression
     active :: Bool, -- False if the bot should quit
     todos :: [Todo]
   }
@@ -32,6 +33,7 @@ emptyState :: LGPTState
 emptyState =
   LGPTState
     { memory = Map.empty,
+      vars = Map.empty,
       that = Nothing,
       active = True,
       todos = []
@@ -39,9 +41,10 @@ emptyState =
 
 -- Smart constructor which creates EvalState from LGPTState
 fromLGPTState :: LGPTState -> EvalState
-fromLGPTState LGPTState {that} =
+fromLGPTState LGPTState {vars, that} =
   EvalState
-    { ethat = that
+    { evars = vars,
+      ethat = that
     }
 
 data LGPTError
@@ -67,7 +70,7 @@ recall :: String -> LGPTState -> Maybe String
 recall name LGPTState {memory} = Map.lookup name memory
 
 -- Stores the result of the last evaluated expression
-storeThat :: Int -> LGPTState -> LGPTState
+storeThat :: Val -> LGPTState -> LGPTState
 storeThat value st@LGPTState {that} = st {that = Just value}
 
 -- Sets bot's state to inactive to indicate that a user has quit
@@ -96,11 +99,11 @@ saveTodos = do
   liftIO $ BL.writeFile todosFile encoded
 
 -- Evaluates an expression and propagates up any evaluation errors
-runEval :: Expr -> LGPT Int
-runEval expr = do
+runEval :: EvalExpr a -> LGPT a
+runEval f = do
   lgptSt <- get
   let evalSt = fromLGPTState lgptSt
-  case runExcept $ evalStateT (evalExpr expr) evalSt of
+  case runExcept $ evalStateT f evalSt of
     Left err -> throwError (EvalErr err)
     Right res -> return res
 
