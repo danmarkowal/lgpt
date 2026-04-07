@@ -29,25 +29,27 @@ data LGPTState = LGPTState
     that :: Maybe Val, -- Value of the last evaluated expression
     active :: Bool, -- False if the bot should quit
     todos :: [Todo],
-    depth :: Int
+    depth :: Int,
+    workingDir :: FilePath
   }
   deriving (Show, Eq)
 
 -- Smart constructor used to construct an empty state value
-emptyState :: LGPTState
-emptyState =
+emptyState :: FilePath -> LGPTState
+emptyState workingDir =
   LGPTState
     { memory = Map.empty,
       vars = Map.empty,
       that = Nothing,
       active = True,
       todos = [],
-      depth = 0
+      depth = 0,
+      workingDir = workingDir
     }
 
 -- Creates new state for running a program in a shell
-mkRunState :: LGPTState -> LGPTState
-mkRunState st@LGPTState {depth} = st {that = Nothing, depth = depth + 1}
+mkRunState :: FilePath -> LGPTState -> LGPTState
+mkRunState workingDir st@LGPTState {depth} = st {that = Nothing, depth = depth + 1, workingDir = workingDir}
 
 -- Each program can be thought of as a 'function'
 -- The return value of the 'function' will be stored as 'that'
@@ -141,7 +143,7 @@ validate err mval = case mval of
   Nothing -> throwError err
   Just val -> return val
 
-ensureFileExists :: String -> LGPT ()
+ensureFileExists :: FilePath -> LGPT ()
 ensureFileExists filename = do
   exists <- liftIO $ doesFileExist filename
   unless exists (throwError $ FileNotExistsError filename)

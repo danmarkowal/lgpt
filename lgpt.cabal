@@ -36,6 +36,7 @@ library
     , cassava
     , containers
     , directory
+    , filepath
     , megaparsec
     , mtl
     , parser-combinators
@@ -61,6 +62,7 @@ executable lgpt-tui
     , cassava
     , containers
     , directory
+    , filepath
     , lgpt
     , megaparsec
     , mtl
@@ -88,6 +90,7 @@ test-suite lgpt-test
     , cassava
     , containers
     , directory
+    , filepath
     , lgpt
     , megaparsec
     , mtl

@@ -23,6 +23,7 @@ dependencies:
   - vector
   - directory
   - random
+  - filepath
 
 default-extensions:
   - TypeSynonymInstances

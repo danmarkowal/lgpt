@@ -19,8 +19,10 @@ import GHC.TopHandler (runIO)
 import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asBool, asInt, asStr, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
 import LGPT.Numbers (parseLonghand, printLonghand)
-import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError, MaxDepthReached), LGPTState (LGPTState, active, depth, todos), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, maxDepth, memorise, mkRunState, quit, recall, returnFromRun, runEval, runUserShell, saveTodos, storeThat, storeVar, validate)
+import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError, MaxDepthReached), LGPTState (LGPTState, active, depth, todos, workingDir), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, maxDepth, memorise, mkRunState, quit, recall, returnFromRun, runEval, runUserShell, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
+import System.Directory (getCurrentDirectory)
+import System.FilePath (takeDirectory, (</>))
 import System.Random (randomRIO)
 import Text.Megaparsec
   ( MonadParsec (eof, try),
@@ -46,7 +48,9 @@ import Text.Megaparsec.Char.Lexer qualified as L
 -- We have to run the state inside of runREPL since the tests expect runREPL to be of type IO ()
 -- Before running the REPL we load the list of todo items
 runREPL :: IO ()
-runREPL = void $ runExceptT $ evalStateT (loadTodos >> loop) emptyState
+runREPL = do
+  cwd <- getCurrentDirectory
+  void $ runExceptT $ evalStateT (loadTodos >> loop) (emptyState cwd)
   where
     loop :: LGPT ()
     loop = do
@@ -421,7 +425,7 @@ respondTo :: Request -> LGPT ()
 respondTo (Unknown err) = liftIO $ do
   putStrLn "I don't understand that."
   putStrLn err
-respondTo Hello = liftIO $ putStrLn "Hi there!"
+respondTo Hello = runUserShell $ liftIO $ putStrLn "Hi there!"
 respondTo DayToday = liftIO $ do
   dotw <- dayOfWeek <$> dayToday
   putStrLn $ "Today is " ++ show dotw ++ "."
@@ -486,9 +490,11 @@ respondTo (AskFor inputType) = do
   runUserShell $ liftIO $ putStrLn "Thank you!"
 respondTo (Say exprs) = do
   vals <- mapM (runEval . evalExpr) exprs
-  runUserShell $ liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
+  liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
 respondTo (Run expr) = do
-  filename <- runEval (evalExpr expr >>= asStr)
+  st <- get
+  runPath <- runEval (evalExpr expr >>= asStr)
+  let filename = workingDir st </> runPath
   ensureFileExists filename
   content <- liftIO $ readFile filename
   -- Empty lines are ignored
@@ -496,9 +502,8 @@ respondTo (Run expr) = do
   program <- case parse parseProgram filename src of
     Left err -> return [Unknown (errorBundlePretty err)]
     Right val -> return val
-  st <- get
   when (depth st == maxDepth) (throwError MaxDepthReached)
-  res <- liftIO $ runExceptT $ execStateT (runBlock program) (mkRunState st)
+  res <- liftIO $ runExceptT $ execStateT (runBlock program) (mkRunState (takeDirectory filename) st)
   case res of
     Left err -> throwError err
     Right runSt -> modify $ returnFromRun runSt
@@ -515,5 +520,5 @@ respondTo (RepeatUntil block conditionExpr) = do
         unless condition loop
   loop
 respondTo Goodbye = do
-  liftIO $ putStrLn "See you next time!"
+  runUserShell $ liftIO $ putStrLn "See you next time!"
   modify quit
