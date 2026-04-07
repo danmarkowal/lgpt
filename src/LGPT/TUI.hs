@@ -18,8 +18,8 @@ import Data.Time (Day, addDays, dayOfWeek, diffDays)
 import GHC.TopHandler (runIO)
 import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asBool, asInt, asStr, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
+import LGPT.LGPT (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError, MaxDepthReached), LGPTState (LGPTState, active, depth, todos, workingDir), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, maxDepth, memorise, mkRunState, quit, recall, returnFromRun, runEval, runUserShell, saveTodos, storeThat, storeVar, validate)
 import LGPT.Numbers (parseLonghand, printLonghand)
-import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError, MaxDepthReached), LGPTState (LGPTState, active, depth, todos, workingDir), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, maxDepth, memorise, mkRunState, quit, recall, returnFromRun, runEval, runUserShell, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import System.Directory (getCurrentDirectory)
 import System.FilePath (takeDirectory, (</>))
@@ -137,7 +137,8 @@ data Request
   | Goodbye
   deriving (Eq, Ord, Show)
 
--- Represents a block of 'code' (a series of statements one line after another)
+-- Represents a block of 'code' (a series of requests one line after another*)
+-- (*) - This is not entirely true since IfOtherwise is parsed as just one request
 type Block = [Request]
 
 runBlock :: Block -> LGPT ()
@@ -342,6 +343,8 @@ parseIfOtherwise = do
   ref <- L.indentLevel
   parseIf False ref
   where
+    -- Parse the 'If' part of the statement
+    -- 'chain' tells us if this is being parsed after an 'Otherwise' (like else if)
     parseIf :: Bool -> Pos -> Parser Request
     parseIf chain ref = do
       string (if chain then "if" else "If")
@@ -364,12 +367,14 @@ parseIfOtherwise = do
     parseOtherwiseTail ref =
       try
         ( do
-            hspace -- Consume the space between "Otherwise" and "if"
-            res <- parseIf True ref -- Parse another if statement but lowercase
-            return [res]
+            hspace -- Consume the space between 'Otherwise' and 'if'
+            res <- parseIf True ref
+            return [res] -- We 'cheat' a bit by returning a single if statment which forms a chain
         )
         <|> (eol *> parseBlock ref)
 
+-- Very similar to the if parser
+-- We could add more types of loops (e.g. Repeat ... While ..., While ... do, Until ... do) however this 'language' is just a proof of concept for me
 parseRepeatUntil :: Parser Request
 parseRepeatUntil = do
   ref <- L.indentLevel
@@ -416,6 +421,8 @@ parseBlock ref = do
 spaceConsumer :: Parser ()
 spaceConsumer = L.space space1 empty empty
 
+-- Using some here might not be the best idea since the parser will fail without error (stop parsing)
+-- if we do not remove empty lines
 parseProgram :: Parser Block
 parseProgram = some parseRequest
 
@@ -493,17 +500,23 @@ respondTo (Say exprs) = do
   liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
 respondTo (Run expr) = do
   st <- get
+  -- Get the path the user wants to run as a string
   runPath <- runEval (evalExpr expr >>= asStr)
+  -- Offset the path relative to the current state's working directory
   let filename = workingDir st </> runPath
   ensureFileExists filename
   content <- liftIO $ readFile filename
   -- Empty lines are ignored
   let src = intercalate "\n" $ filter (not . null) $ lines content
+  -- Parse program as a list of requests
   program <- case parse parseProgram filename src of
     Left err -> return [Unknown (errorBundlePretty err)]
     Right val -> return val
+  -- Prevent infinite recursion
   when (depth st == maxDepth) (throwError MaxDepthReached)
+  -- Run the program
   res <- liftIO $ runExceptT $ execStateT (runBlock program) (mkRunState (takeDirectory filename) st)
+  -- Propagate errors from program to top-level shell
   case res of
     Left err -> throwError err
     Right runSt -> modify $ returnFromRun runSt
@@ -512,7 +525,7 @@ respondTo (IfOtherwise conditionExpr trueBlock falseBlock) = do
   runBlock $
     if condition
       then trueBlock
-      else fromMaybe [] falseBlock
+      else fromMaybe [] falseBlock -- Normalise to an empty list of requests
 respondTo (RepeatUntil block conditionExpr) = do
   let loop = do
         runBlock block

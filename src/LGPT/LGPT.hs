@@ -1,6 +1,6 @@
 -- Created a new module to remove cyclic dependency
 {- HLINT ignore "Use newtype instead of data" -}
-module LGPT.State where
+module LGPT.LGPT where
 
 import Control.Monad (unless, when)
 import Control.Monad.Except (Except, ExceptT, MonadError (throwError), runExcept, runExceptT)

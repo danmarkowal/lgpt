@@ -28,7 +28,7 @@ data Todo = Todo
   { thing :: !String,
     dueDay :: !Day
   }
-  deriving (Generic, Eq, Ord, Show)
+  deriving (Generic, Eq, Ord, Show) -- Generic is needed for automatic generation
 
 -- I needed to create a basic encoder/decoder for Day
 -- This is so that cassava could derive the remainder of the Todo encoder/decoder
@@ -42,8 +42,9 @@ instance FromField Day where
   parseField bs =
     case parseTimeM True defaultTimeLocale "%F" (BS.unpack bs) of
       Nothing -> fail "Invalid date (expected YYYY-MM-DD)"
-      Just day -> pure day
+      Just day -> return day
 
+-- Automatically generate instances for paring CSV records
 instance FromRecord Todo
 
 instance ToRecord Todo

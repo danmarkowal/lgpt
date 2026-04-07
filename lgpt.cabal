@@ -16,8 +16,8 @@ library
   exposed-modules:
       LGPT.Expr
       LGPT.Helpers
+      LGPT.LGPT
       LGPT.Numbers
-      LGPT.State
       LGPT.Todo
       LGPT.TUI
   other-modules:
