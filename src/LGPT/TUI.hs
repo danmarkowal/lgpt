@@ -8,13 +8,14 @@ You can create or modify any files in src/ as much as you like. The
 code that is included here is a good starting point, but you don't need to
 keep it if you don't want to.
 -}
-import Control.Monad (void, when)
+import Control.Monad (forM_, void, when)
+import Control.Monad.Combinators (empty)
 import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
 import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
 import Data.List (intercalate)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
-import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asInt, asStr, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
+import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asBool, asInt, asStr, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
 import LGPT.Numbers (parseLonghand, printLonghand)
 import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError), LGPTState (LGPTState, active, todos), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
@@ -22,16 +23,18 @@ import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore,
 import System.Random (randomRIO)
 import Text.Megaparsec
   ( MonadParsec (eof, try),
+    Pos,
     choice,
     errorBundlePretty,
+    many,
     optional,
     parse,
     sepBy1,
     some,
     (<|>),
   )
-import Text.Megaparsec.Byte.Lexer (decimal)
-import Text.Megaparsec.Char (char, eol, space, string)
+import Text.Megaparsec.Char (char, eol, hspace, hspace1, space, space1, string)
+import Text.Megaparsec.Char.Lexer qualified as L
 
 --------------------------------------------------------------------------------
 
@@ -124,11 +127,15 @@ data Request
   | AskFor InputType
   | Say [Expr]
   | Run Expr
+  | IfOtherwise Expr Block (Maybe Block)
   | Goodbye
   deriving (Eq, Ord, Show)
 
 -- Represents a block of 'code' (a series of statements one line after another)
 type Block = [Request]
+
+runBlock :: Block -> LGPT ()
+runBlock = mapM_ respondTo
 
 -- | Read a request.
 --
@@ -157,6 +164,7 @@ parseRequest =
       parseAskFor,
       parseSay,
       parseRun,
+      parseIfOtherwise,
       parseGoodbye
     ]
 
@@ -321,6 +329,39 @@ parseRun = do
   endRequest
   return $ Run expr
 
+parseIfOtherwise :: Parser Request
+parseIfOtherwise = do
+  ref <- L.indentLevel
+  parseIf False ref
+  where
+    parseIf :: Bool -> Pos -> Parser Request
+    parseIf chain ref = do
+      string (if chain then "if" else "If")
+      space
+      expr <- parseExpr
+      space
+      string "then"
+      eol
+      trueBlock <- parseBlock ref
+      falseBlock <- parseOtherwise ref
+      return $ IfOtherwise expr trueBlock falseBlock
+
+    parseOtherwise :: Pos -> Parser (Maybe Block)
+    parseOtherwise ref = optional . try $ do
+      L.indentGuard spaceConsumer EQ ref
+      string "Otherwise"
+      parseOtherwiseTail ref
+
+    parseOtherwiseTail :: Pos -> Parser Block
+    parseOtherwiseTail ref =
+      try
+        ( do
+            hspace -- Consume the space between "Otherwise" and "if"
+            res <- parseIf True ref -- Parse another if statement but lowercase
+            return [res]
+        )
+        <|> (eol *> parseBlock ref)
+
 parseGoodbye :: Parser Request
 parseGoodbye = do
   string "Goodbye" <|> string "Bye"
@@ -330,6 +371,23 @@ parseGoodbye = do
 
 endRequest :: Parser ()
 endRequest = void eol <|> eof
+
+-- Parses a block of requests/statements
+parseBlock :: Pos -> Parser Block
+parseBlock ref = do
+  -- Find the indent of the first request ensure it is > ref
+  pos <- L.indentGuard spaceConsumer GT ref
+  first <- parseRequest
+
+  -- Parse any remaining requests at that indentation level
+  rest <- many $ try $ do
+    L.indentGuard spaceConsumer EQ pos
+    parseRequest
+
+  return (first : rest)
+
+spaceConsumer :: Parser ()
+spaceConsumer = L.space space1 empty empty
 
 parseProgram :: Parser Block
 parseProgram = some parseRequest
@@ -412,7 +470,14 @@ respondTo (Run expr) = do
   program <- case parse parseProgram filename src of
     Left err -> return [Unknown (errorBundlePretty err)]
     Right val -> return val
-  mapM_ respondTo program
+  runBlock program
+respondTo req@(IfOtherwise conditionExpr trueBlock falseBlock) = do
+  liftIO $ print req
+  condition <- runEval (evalExpr conditionExpr >>= asBool)
+  runBlock $
+    if condition
+      then trueBlock
+      else fromMaybe [] falseBlock
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit

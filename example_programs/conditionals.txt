@@ -2,7 +2,7 @@ Ask for a number.
 
 If that is greater than ten then
     Say "Fizz".
-otherwise if that is more than five then
+Otherwise if that is greater than five then
     Say "Buzz".
-otherwise
+Otherwise
     Say "FizzBuzz".
