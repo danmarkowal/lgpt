@@ -16,7 +16,8 @@ import Data.Vector qualified as V
 import LGPT.Expr (EvalError, EvalExpr, EvalState (EvalState, ethat, evars), Expr, Val, evalExpr, handleEvalError)
 import LGPT.Helpers (enumerate)
 import LGPT.Todo (Todo (Todo), TodoList (items), fromTodos, removeIds, toTodos, todosFile)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, getCurrentDirectory)
+import System.FilePath (makeRelative)
 
 -- Since programs can run other programs (and indeed themselves) we need to ensure we don't get stuck in an infinite loop
 maxDepth :: Int
@@ -72,7 +73,7 @@ data LGPTError
   | FutureDayError Day
   | InvalidDayError
   | InvalidInputError
-  | FileNotExistsError String
+  | FileNotExistsError FilePath
   | MaxDepthReached
   deriving (Show, Eq)
 
@@ -82,7 +83,9 @@ handleLGPTError err = case err of
   FutureDayError day -> putStrLn $ show day ++ " is in the future."
   InvalidDayError -> putStrLn "That's not a real day."
   InvalidInputError -> putStrLn "Your input doesn't look right."
-  FileNotExistsError filename -> putStrLn $ filename ++ " does not exist."
+  FileNotExistsError filename -> do
+    cwd <- getCurrentDirectory
+    putStrLn $ makeRelative cwd filename ++ " does not exist."
   MaxDepthReached -> putStrLn "Maximum program depth has been reached."
 
 type LGPT = StateT LGPTState (ExceptT LGPTError IO)
