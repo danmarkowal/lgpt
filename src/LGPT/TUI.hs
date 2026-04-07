@@ -198,7 +198,7 @@ parseDayTomorrow = do
 parseDaysSince :: Parser Request
 parseDaysSince = do
   string "How long ago was"
-  space
+  hspace
   day <- parseDay
   char '?'
   endRequest
@@ -207,7 +207,7 @@ parseDaysSince = do
 parseWhatIs :: Parser Request
 parseWhatIs = do
   string "What is"
-  space
+  hspace
   expr <- parseExpr
   char '?'
   endRequest
@@ -216,11 +216,11 @@ parseWhatIs = do
 parseRemember :: Parser Request
 parseRemember = do
   string "Remember that"
-  space
+  hspace
   name <- parseIdentifier "is"
-  space
+  hspace
   string "is"
-  space
+  hspace
   thing <- parseIdentifier "."
   char '.'
   endRequest
@@ -229,7 +229,7 @@ parseRemember = do
 parseTellMeAbout :: Parser Request
 parseTellMeAbout = do
   string "Tell me about"
-  space
+  hspace
   name <- parseIdentifier "."
   char '.'
   endRequest
@@ -238,15 +238,15 @@ parseTellMeAbout = do
 parseAddTodo :: Parser Request
 parseAddTodo = do
   string "I"
-  space
+  hspace
   string "need to" <|> string "have to" <|> string "must"
-  space
+  hspace
   -- TODO: Change this parser to allow numerals
   thing <- parseIdentifier "by"
   string "by"
-  space
+  hspace
   by <- parseTodoDay
-  string "."
+  char '.'
   endRequest
   return $ AddTodo thing by
 
@@ -254,13 +254,13 @@ parseAddTodo = do
 parseTodos :: Parser Request
 parseTodos = do
   string "What do I"
-  space
+  hspace
   string "have" <|> string "need"
-  space
+  hspace
   string "to do by"
-  space
+  hspace
   by <- parseTodoDay
-  string "?"
+  char '?'
   endRequest
   return $ Todos by
 
@@ -269,9 +269,9 @@ parseTodos = do
 parseDone :: Parser Request
 parseDone = do
   string "I've done"
-  space
+  hspace
   ids <- parseIds
-  string "."
+  char '.'
   endRequest
   return $ Done ids
 
@@ -279,42 +279,42 @@ parseDone = do
 parseRandom :: Parser Request
 parseRandom = do
   string "Give" <|> string "Generate"
-  space
+  hspace
   optional (string "me" *> space)
   string "a"
-  space
+  hspace
   optional (string "random" *> space)
   string "number between"
-  space
+  hspace
   min <- parseArithmeticExpr
-  space
+  hspace
   string "and"
-  space
+  hspace
   max <- parseArithmeticExpr
-  string "."
+  char '.'
   endRequest
   return $ Random min max
 
 parseLet :: Parser Request
 parseLet = do
   string "Let"
-  space
+  hspace
   name <- parseVarName
-  space
+  hspace
   string "be"
-  space
+  hspace
   expr <- parseExpr
-  string "."
+  char '.'
   endRequest
   return $ Let name expr
 
 parseAskFor :: Parser Request
 parseAskFor = do
   string "Ask for"
-  space
+  hspace
   inputType <- parseInputType
-  space
-  string "."
+  hspace
+  char '.'
   endRequest
   return $ AskFor inputType
 
@@ -322,18 +322,18 @@ parseAskFor = do
 parseSay :: Parser Request
 parseSay = do
   string "Say"
-  space
+  hspace
   exprs <- parseExpr `sepBy1` string ", "
-  string "."
+  char '.'
   endRequest
   return $ Say exprs
 
 parseRun :: Parser Request
 parseRun = do
   string "Run"
-  space
+  hspace
   expr <- parseExpr
-  string "."
+  char '.'
   endRequest
   return $ Run expr
 
@@ -348,9 +348,9 @@ parseIfOtherwise = do
     parseIf :: Bool -> Pos -> Parser Request
     parseIf chain ref = do
       string (if chain then "if" else "If")
-      space
+      hspace
       expr <- parseExpr
-      space
+      hspace
       string "then"
       eol
       trueBlock <- parseBlock ref
@@ -388,7 +388,7 @@ parseRepeatUntil = do
     parseUntil ref = do
       L.indentGuard spaceConsumer EQ ref
       string "Until"
-      space
+      hspace
       condition <- parseExpr
       string "."
       endRequest

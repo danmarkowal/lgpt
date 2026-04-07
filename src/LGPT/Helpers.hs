@@ -13,7 +13,7 @@ import Data.Void (Void)
 import System.Console.ANSI
 import System.IO
 import Text.Megaparsec
-import Text.Megaparsec.Char (alphaNumChar, char, letterChar, punctuationChar, space, spaceChar, string, symbolChar)
+import Text.Megaparsec.Char (alphaNumChar, char, hspace, letterChar, punctuationChar, spaceChar, string, symbolChar)
 import Text.Megaparsec.Char.Lexer (decimal)
 
 -- | Our Parser monad is a specialisation of the complex "Parsec" type
@@ -78,7 +78,7 @@ dayToday = localDay . zonedTimeToLocalTime <$> getZonedTime
 
 -- Eat exactly one space between parsers
 lexeme :: Parser a -> Parser a
-lexeme p = p <* space
+lexeme p = p <* hspace
 
 -- Lexeme with a string parser
 symbol :: String -> Parser String

@@ -1,6 +1,6 @@
 module Main where
 
-import LGPT.Helpers
+import LGPT.Helpers (runStart)
 import LGPT.TUI qualified as TUI
 
 -- | This is what gets run when you run the program.
