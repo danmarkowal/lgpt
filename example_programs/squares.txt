@@ -1,0 +1,7 @@
+Let counter be zero.
+Repeat
+    Let x be counter.
+    Run "square.txt".
+    Say that.
+    Let counter be counter plus one.
+Until counter is twenty.

@@ -18,13 +18,18 @@ import LGPT.Helpers (enumerate)
 import LGPT.Todo (Todo (Todo), TodoList (items), fromTodos, removeIds, toTodos, todosFile)
 import System.Directory (doesFileExist)
 
+-- Since programs can run other programs (and indeed themselves) we need to ensure we don't get stuck in an infinite loop
+maxDepth :: Int
+maxDepth = 100
+
 -- I chose to use a data structure rather than a tuple since it automatically generates accessors
 data LGPTState = LGPTState
   { memory :: Map String String, -- Key-value map of memory (e.g. the sky: is blue)
     vars :: Map String Val,
     that :: Maybe Val, -- Value of the last evaluated expression
     active :: Bool, -- False if the bot should quit
-    todos :: [Todo]
+    todos :: [Todo],
+    depth :: Int
   }
   deriving (Show, Eq)
 
@@ -36,8 +41,21 @@ emptyState =
       vars = Map.empty,
       that = Nothing,
       active = True,
-      todos = []
+      todos = [],
+      depth = 0
     }
+
+-- Creates new state for running a program in a shell
+mkRunState :: LGPTState -> LGPTState
+mkRunState st@LGPTState {depth} = st {that = Nothing, depth = depth + 1}
+
+-- Each program can be thought of as a 'function'
+-- The return value of the 'function' will be stored as 'that'
+returnFromRun :: LGPTState -> LGPTState -> LGPTState
+returnFromRun newSt oldSt = oldSt {that = that newSt}
+
+isUserShell :: LGPTState -> Bool
+isUserShell st@LGPTState {depth} = depth == 0
 
 -- Smart constructor which creates EvalState from LGPTState
 fromLGPTState :: LGPTState -> EvalState
@@ -53,6 +71,7 @@ data LGPTError
   | InvalidDayError
   | InvalidInputError
   | FileNotExistsError String
+  | MaxDepthReached
   deriving (Show, Eq)
 
 handleLGPTError :: LGPTError -> IO ()
@@ -62,6 +81,7 @@ handleLGPTError err = case err of
   InvalidDayError -> putStrLn "That's not a real day."
   InvalidInputError -> putStrLn "Your input doesn't look right."
   FileNotExistsError filename -> putStrLn $ filename ++ " does not exist."
+  MaxDepthReached -> putStrLn "Maximum program depth has been reached."
 
 type LGPT = StateT LGPTState (ExceptT LGPTError IO)
 
@@ -125,3 +145,10 @@ ensureFileExists :: String -> LGPT ()
 ensureFileExists filename = do
   exists <- liftIO $ doesFileExist filename
   unless exists (throwError $ FileNotExistsError filename)
+
+-- We don't want to print user-facing outputs when we run a program from the shell
+-- This function makes it so that a computation is only run in a user-shell
+runUserShell :: LGPT () -> LGPT ()
+runUserShell c = do
+  st <- get
+  when (isUserShell st) c

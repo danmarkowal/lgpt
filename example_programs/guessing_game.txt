@@ -6,16 +6,20 @@ Let guesses be zero.
 
 Repeat
     Ask for a number.
-    If that is greater than one hundred then
+    Let guess be that.
+    If guess is greater than ten then
         Say "Your guess must be in the range zero to ten".
-    otherwise
-        Let guess be that.
+    Otherwise
+        If answer is less than guess then
+            Say "Lower!".
+        Otherwise if answer is greater than guess then
+            Say "Higher!".
         Let guesses be guesses plus one.
 Until guess is answer or guesses is three.
 
 If guess is answer then
     Say "Well done! You guessed the number".
-otherwise
+Otherwise
     Say "Better luck next time!".
 
 Goodbye.

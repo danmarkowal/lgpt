@@ -8,17 +8,18 @@ You can create or modify any files in src/ as much as you like. The
 code that is included here is a good starting point, but you don't need to
 keep it if you don't want to.
 -}
-import Control.Monad (forM_, void, when)
+import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Combinators (empty)
 import Control.Monad.Except (MonadError (catchError, throwError), runExcept, runExceptT)
-import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, gets, modify)
+import Control.Monad.State (MonadIO (liftIO), MonadState (get), StateT (runStateT), evalState, evalStateT, execStateT, gets, modify)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Time (Day, addDays, dayOfWeek, diffDays)
+import GHC.TopHandler (runIO)
 import LGPT.Expr (Expr, Val (BoolVal, IntVal, StrVal), ValType, asBool, asInt, asStr, evalExpr, parseArithmeticExpr, parseBoolLiteral, parseExpr, parseIntLiteral, parseVarName)
 import LGPT.Helpers (Parser, dayToday, parseDay, parseIdentifier, parseText, prompt, runStart, symbol)
 import LGPT.Numbers (parseLonghand, printLonghand)
-import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError), LGPTState (LGPTState, active, todos), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, memorise, quit, recall, runEval, saveTodos, storeThat, storeVar, validate)
+import LGPT.State (LGPT, LGPTError (FutureDayError, InvalidDayError, InvalidInputError, MaxDepthReached), LGPTState (LGPTState, active, depth, todos), addTodo, emptyState, ensureFileExists, handleLGPTError, loadTodos, markDone, maxDepth, memorise, mkRunState, quit, recall, returnFromRun, runEval, runUserShell, saveTodos, storeThat, storeVar, validate)
 import LGPT.Todo (Todo (dueDay, thing), TodoDay, TodoList (items), filterBefore, fromTodoDay, fromTodos, mkTodo, parseIds, parseTodoDay)
 import System.Random (randomRIO)
 import Text.Megaparsec
@@ -128,6 +129,7 @@ data Request
   | Say [Expr]
   | Run Expr
   | IfOtherwise Expr Block (Maybe Block)
+  | RepeatUntil Block Expr
   | Goodbye
   deriving (Eq, Ord, Show)
 
@@ -165,6 +167,7 @@ parseRequest =
       parseSay,
       parseRun,
       parseIfOtherwise,
+      parseRepeatUntil,
       parseGoodbye
     ]
 
@@ -329,6 +332,7 @@ parseRun = do
   endRequest
   return $ Run expr
 
+-- The worst thing I've ever written
 parseIfOtherwise :: Parser Request
 parseIfOtherwise = do
   ref <- L.indentLevel
@@ -361,6 +365,25 @@ parseIfOtherwise = do
             return [res]
         )
         <|> (eol *> parseBlock ref)
+
+parseRepeatUntil :: Parser Request
+parseRepeatUntil = do
+  ref <- L.indentLevel
+  string "Repeat"
+  eol
+  block <- parseBlock ref
+  condition <- parseUntil ref
+  return $ RepeatUntil block condition
+  where
+    parseUntil :: Pos -> Parser Expr
+    parseUntil ref = do
+      L.indentGuard spaceConsumer EQ ref
+      string "Until"
+      space
+      condition <- parseExpr
+      string "."
+      endRequest
+      return condition
 
 parseGoodbye :: Parser Request
 parseGoodbye = do
@@ -412,25 +435,28 @@ respondTo (DaysSince mstart) = do
   let delta = diffDays today start
   when (delta < 0) (throwError $ FutureDayError start)
   liftIO $ putStrLn $ show start ++ " was " ++ show delta ++ " days ago."
+-- WhatIs is actually useful to 'return' values from 'functions'
 respondTo (WhatIs expr) = do
   res <- runEval (evalExpr expr)
   modify $ storeThat res
-  liftIO $ putStrLn $ "The answer is " ++ show res ++ "."
-respondTo (Remember name thing) = do
+  runUserShell $ liftIO $ putStrLn $ "The answer is " ++ show res ++ "."
+-- This is also kind of useless in programs
+respondTo (Remember name thing) = runUserShell $ do
   modify $ memorise name thing
   liftIO $ putStrLn "Okay."
-respondTo (TellMeAbout name) = do
+-- Todo management should only be accessible by the user
+respondTo (TellMeAbout name) = runUserShell $ do
   mthing <- gets $ recall name
   liftIO $ case mthing of
     Nothing -> putStrLn $ "Sorry, I don't know anything about " ++ name ++ "."
     Just thing -> putStrLn $ "Sure - " ++ name ++ " is " ++ thing ++ "."
-respondTo (AddTodo thing mby) = do
+respondTo (AddTodo thing mby) = runUserShell $ do
   by <- validate InvalidDayError mby
   todo <- liftIO $ mkTodo thing by
   modify $ addTodo todo
   saveTodos
   liftIO $ putStrLn "Noted."
-respondTo (Todos mby) = do
+respondTo (Todos mby) = runUserShell $ do
   by <- validate InvalidDayError mby >>= liftIO . fromTodoDay
   st <- get
   let todoList = filterBefore by $ fromTodos (todos st)
@@ -441,26 +467,26 @@ respondTo (Todos mby) = do
 respondTo (Done ids) = do
   modify $ markDone ids
   saveTodos
-  liftIO $ putStrLn "Noted."
+  runUserShell $ liftIO $ putStrLn "Noted."
 respondTo (Random minExpr maxExpr) = do
   min <- runEval (evalExpr minExpr >>= asInt)
   max <- runEval (evalExpr maxExpr >>= asInt)
   num <- liftIO $ randomRIO (min, max)
   modify $ storeThat (IntVal num)
-  liftIO $ putStrLn $ "Your number is " ++ printLonghand num ++ "."
+  runUserShell $ liftIO $ putStrLn $ "Your number is " ++ printLonghand num ++ "."
 respondTo (Let name expr) = do
   val <- runEval (evalExpr expr)
   modify $ storeVar name val
-  liftIO $ putStrLn "Stored."
+  runUserShell $ liftIO $ putStrLn "Stored."
 respondTo (AskFor inputType) = do
   liftIO $ putStr $ "Enter " ++ show inputType ++ ": "
   input <- liftIO getLine
   val <- parseInput inputType input
   modify $ storeThat val
-  liftIO $ putStrLn "Thank you!"
+  runUserShell $ liftIO $ putStrLn "Thank you!"
 respondTo (Say exprs) = do
   vals <- mapM (runEval . evalExpr) exprs
-  liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
+  runUserShell $ liftIO $ putStrLn $ unwords $ map (show . InputVal) vals
 respondTo (Run expr) = do
   filename <- runEval (evalExpr expr >>= asStr)
   ensureFileExists filename
@@ -470,14 +496,24 @@ respondTo (Run expr) = do
   program <- case parse parseProgram filename src of
     Left err -> return [Unknown (errorBundlePretty err)]
     Right val -> return val
-  runBlock program
-respondTo req@(IfOtherwise conditionExpr trueBlock falseBlock) = do
-  liftIO $ print req
+  st <- get
+  when (depth st == maxDepth) (throwError MaxDepthReached)
+  res <- liftIO $ runExceptT $ execStateT (runBlock program) (mkRunState st)
+  case res of
+    Left err -> throwError err
+    Right runSt -> modify $ returnFromRun runSt
+respondTo (IfOtherwise conditionExpr trueBlock falseBlock) = do
   condition <- runEval (evalExpr conditionExpr >>= asBool)
   runBlock $
     if condition
       then trueBlock
       else fromMaybe [] falseBlock
+respondTo (RepeatUntil block conditionExpr) = do
+  let loop = do
+        runBlock block
+        condition <- runEval (evalExpr conditionExpr >>= asBool)
+        unless condition loop
+  loop
 respondTo Goodbye = do
   liftIO $ putStrLn "See you next time!"
   modify quit
